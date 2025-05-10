@@ -1,0 +1,10 @@
+{"timestamp": "2025-05-10 17:51:48", "level": "DEBUG", "module": "test_load_yaml", "line": 8, "message": "调试日志", "logger": "normal"}
+{"timestamp": "2025-05-10 17:51:48", "level": "INFO", "module": "test_load_yaml", "line": 9, "message": "常规信息", "logger": "normal"}
+{"timestamp": "2025-05-10 17:51:48", "level": "WARNING", "module": "test_load_yaml", "line": 10, "message": "警告！", "logger": "normal"}
+{"timestamp": "2025-05-10 17:51:48", "level": "ERROR", "module": "test_load_yaml", "line": 11, "message": "出错了", "logger": "normal"}
+{"timestamp": "2025-05-10 17:51:48", "level": "CRITICAL", "module": "test_load_yaml", "line": 12, "message": "严重错误！", "logger": "normal"}
+[2025-05-10 17:52:19,147] DEBUG 调试日志 (test_load_yaml.py:8)
+[2025-05-10 17:52:19,147] INFO 常规信息 (test_load_yaml.py:9)
+[2025-05-10 17:52:19,147] WARNING 警告！ (test_load_yaml.py:10)
+[2025-05-10 17:52:19,147] ERROR 出错了 (test_load_yaml.py:11)
+[2025-05-10 17:52:19,148] CRITICAL 严重错误！ (test_load_yaml.py:12)
