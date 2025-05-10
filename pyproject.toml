@@ -1,0 +1,23 @@
+[project]
+name = "tmatrix"
+version = "0.1.0"
+description = "A higher-level scheduling and control center for multi-instance inference services."
+authors = [
+  { name = "yanghao", email = "17335651205@163.com" }
+]
+dependencies = [
+  "requests >=2.24.0",
+  "numpy >=1.18.0"
+]
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.black]
+line-length = 88
+target-version = ['py311']
+
+[tool.pytest.ini_options]
+minversion = "6.0"
+addopts = "-ra -q"

@@ -1,0 +1,14 @@
+log_level: "DEBUG"
+log_dir: "./logs"
+console:
+  enable: true
+  level: "INFO"
+  color: true
+file:
+  enable: true
+  level: "DEBUG"
+  filename: "tMatrix_application.log"
+  when: "midnight"      # Rotate at midnight
+  backupCount: 7        # Keep last 7 days
+  maxBytes: 0           # 0 means ignore, handled by 'when'
+  formatter: "plain"    # plain 或 json
