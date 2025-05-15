@@ -16,7 +16,7 @@ DEFAULT_CONFIG = {
         'when': 'midnight',    # Rotate at midnight
         'backupCount': 7,      # Keep last 7 days
         'maxBytes': 0,         # 0 means ignore, handled by 'when'
-        'formatter': 'json',   # plain 或 json
+        'formatter': 'plain',  # plain 或 json
     }
 }
 

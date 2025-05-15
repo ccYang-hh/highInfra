@@ -1,0 +1,63 @@
+{
+  "app_name": "tMatrix测试系统",
+  "app_version": "0.9.0",
+  "app_description": "推理系统测试配置",
+  "host": "127.0.0.1",
+  "port": 8080,
+  "log_level": "debug",
+  "service_discovery": "static",
+  "worker_threads": 4,
+  "max_batch_size": 16,
+
+  "plugin_registry": {
+    "plugins": {
+      "image_processor": {
+        "enabled": true,
+        "module": "tmatrix.plugins.image",
+        "priority": 100,
+        "config_path": "./configs/image_processor.json"
+      },
+      "text_processor": {
+        "enabled": true,
+        "path": "./plugins/text_processor.py",
+        "priority": 200,
+        "config_path": "./configs/text_processor.json"
+      },
+      "logger": {
+        "enabled": false,
+        "module": "tmatrix.plugins.logger",
+        "config_path": "./configs/logger.json"
+      }
+    },
+    "discovery_paths": [
+      "./plugins",
+      "./custom_plugins"
+    ],
+    "auto_discovery": true
+  },
+
+  "pipelines": {
+    "main": {
+      "max_parallelism": 2,
+      "stages": ["input", "preprocess", "inference", "postprocess", "output"],
+      "connections": [
+        {"from": "input", "to": "preprocess"},
+        {"from": "preprocess", "to": "inference"},
+        {"from": "inference", "to": "postprocess"},
+        {"from": "postprocess", "to": "output"}
+      ],
+      "entry_points": ["input"],
+      "exit_points": ["output"]
+    },
+    "image_only": {
+      "max_parallelism": 4,
+      "stages": ["image_input", "image_process", "output"],
+      "connections": [
+        {"from": "image_input", "to": "image_process"},
+        {"from": "image_process", "to": "output"}
+      ],
+      "entry_points": ["image_input"],
+      "exit_points": ["output"]
+    }
+  }
+}

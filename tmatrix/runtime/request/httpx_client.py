@@ -1,7 +1,6 @@
 import httpx
 
-from vllm_router.log import init_logger
-
+from tmatrix.components.logging import init_logger
 logger = init_logger(__name__)
 
 

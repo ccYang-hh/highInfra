@@ -1,13 +1,12 @@
 import traceback
 from functools import wraps
-import asyncio
-from contextlib import contextmanager, asynccontextmanager
-from typing import Any, Callable, Dict, List, Optional, Type, TypeVar, Union, Generic, cast, Protocol, Generator
+from contextlib import contextmanager
+from typing import Any, Callable, List, TypeVar, Generator
 
-from .types import ErrorCategory, ErrorContext, ErrorDefinition
 from .base import BaseError
 from .registry import ErrorRegistry
 from .adapters import ErrorOutputAdapter
+from .types import ErrorCategory, ErrorContext, ErrorDefinition, SYSTEM_UNKNOWN_ERROR
 
 
 # 类型变量定义
@@ -38,30 +37,8 @@ class BaseErrorHandler:
             error.context = merged_context
             return error
         else:
-            # 将普通异常转换为BaseError
             registry = ErrorRegistry()
-
-            # 检查是否已定义SYSTEM-UNKNOWN错误
-            unknown_code = "SYSTEM-UNKNOWN"
-            error_def = registry.get_error_def(unknown_code)
-
-            if not error_def:
-                # 动态创建一个通用错误定义
-                error_def = ErrorDefinition(
-                    code=unknown_code,
-                    message="未处理的系统异常: {message}",
-                    status_code=500,
-                    category=ErrorCategory.SYSTEM
-                )
-                # 注册到系统模块
-                registry.register_error("SYSTEM", unknown_code, error_def)
-
-            # 创建应用错误
-            base_error = BaseError(
-                error_def,
-                self.global_context,
-                message=str(error) or type(error).__name__
-            )
+            base_error = registry.get_or_create_error(SYSTEM_UNKNOWN_ERROR)
 
             # 添加堆栈跟踪到上下文
             tb_str = "".join(traceback.format_exception(type(error), error, error.__traceback__))
@@ -112,7 +89,8 @@ class ErrorHandler(BaseErrorHandler):
 
         return wrapper
 
-    def with_context(self, **context_data) -> Callable[[Callable[..., R]], Callable[..., R]]:
+    @staticmethod
+    def with_context(**context_data) -> Callable[[Callable[..., R]], Callable[..., R]]:
         """
         为函数添加错误上下文的装饰器
 
@@ -143,27 +121,8 @@ class ErrorHandler(BaseErrorHandler):
                     e.context = local_context.merge(e.context)
                     raise
                 except Exception as e:
-                    # 包装为BaseError
                     registry = ErrorRegistry()
-
-                    # 检查是否已定义SYSTEM-UNHANDLED错误
-                    unhandled_code = "SYSTEM-UNHANDLED"
-                    error_def = registry.get_error_def(unhandled_code)
-
-                    if not error_def:
-                        # 动态创建错误定义
-                        error_def = ErrorDefinition(
-                            code=unhandled_code,
-                            message="未处理的异常: {message}",
-                            status_code=500
-                        )
-                        registry.register_error("SYSTEM", unhandled_code, error_def)
-
-                    base_error = BaseError(
-                        error_def,
-                        local_context,
-                        message=str(e) or type(e).__name__
-                    )
+                    base_error = registry.get_or_create_error(SYSTEM_UNKNOWN_ERROR)
                     raise base_error from e
 
             return wrapper
@@ -198,27 +157,8 @@ class ErrorHandler(BaseErrorHandler):
             e.context = local_context.merge(e.context)
             raise
         except Exception as e:
-            # 包装为 BaseError
             registry = ErrorRegistry()
-
-            # 检查是否已定义SYSTEM-UNHANDLED错误
-            unhandled_code = "SYSTEM-UNHANDLED"
-            error_def = registry.get_error_def(unhandled_code)
-
-            if not error_def:
-                # 动态创建错误定义
-                error_def = ErrorDefinition(
-                    code=unhandled_code,
-                    message="未处理的异常: {message}",
-                    status_code=500
-                )
-                registry.register_error("SYSTEM", unhandled_code, error_def)
-
-            base_error = BaseError(
-                error_def,
-                local_context,
-                message=str(e) or type(e).__name__
-            )
+            base_error = registry.get_or_create_error(SYSTEM_UNKNOWN_ERROR)
             raise base_error from e
 
 

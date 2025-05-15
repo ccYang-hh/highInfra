@@ -1,7 +1,7 @@
 from typing import Dict, Optional
 
-from .types import ErrorCategory, ErrorContext, ErrorDefinition
 from .base import BaseError
+from .types import ErrorCategory, ErrorContext, ErrorDefinition, COMMON_ERRORS
 
 
 class ErrorRegistry:
@@ -12,10 +12,24 @@ class ErrorRegistry:
     def __new__(cls):
         if cls._instance is None:
             cls._instance = super(ErrorRegistry, cls).__new__(cls)
-            cls._instance._modules = {}         # 模块名称 -> 错误定义字典
-            cls._instance._error_codes = set()  # 已注册的错误码集合，用于检测重复
-            cls._instance._definition_cache = {}  # 错误定义缓存\
         return cls._instance
+
+    def __init__(self):
+        # 幂等初始化防护
+        if not hasattr(self, '_initialized'):
+            self._modules = {}               # 模块名称 -> 错误定义字典
+            self._error_codes = set()        # 已注册的错误码集合，用于检测重复
+            self._definition_cache = {}      # error_def缓存
+            self._error_instance_cache = {}  # 错误实例缓存, (code, frozenset or None) -> BaseError
+            self.register_defaults()         # 注册预置错误
+            self._initialized = True         # 初始化标志
+
+    def register_defaults(self):
+        """注册预置错误"""
+        module = self.get_module('system')
+        define_fn = module.define
+        for params in COMMON_ERRORS:
+            define_fn(*params)
 
     def get_module(self, module_name: str) -> 'ErrorModule':
         """获取模块注册器，如果不存在则创建"""
@@ -57,6 +71,32 @@ class ErrorRegistry:
                 return module_errors[code]
         return None
 
+    def get_or_create_error(self,
+                            code: str,
+                            context: Optional[ErrorContext] = None,
+                            **kwargs) -> BaseError:
+        """获取或创建错误实例，统一缓存管理"""
+        error_def = self.get_error_def(code)
+        if not error_def:
+            raise ValueError(f"未找到错误定义 {code}")
+
+        # 如果有context，不使用缓存
+        if context is not None:
+            return BaseError(error_def, context, **kwargs)
+
+        # 构建缓存键：无参数时使用None，有参数时使用frozenset
+        param_key = frozenset(kwargs.items()) if kwargs else None
+        cache_key = (code, param_key)
+
+        # 检查缓存
+        if cache_key in self._error_instance_cache:
+            return self._error_instance_cache[cache_key]
+
+        # 缓存未命中，创建新错误并缓存
+        error = BaseError(error_def, None, **kwargs)
+        self._error_instance_cache[cache_key] = error
+        return error
+
     def list_all_errors(self) -> Dict[str, Dict[str, ErrorDefinition]]:
         """列出所有注册的错误"""
         return self._modules.copy()
@@ -66,6 +106,17 @@ class ErrorRegistry:
         self._modules.clear()
         self._error_codes.clear()
         self._definition_cache.clear()
+
+    def raise_error(
+            self,
+            code_suffix: str,
+            context: Optional[ErrorContext] = None,
+            **kwargs
+    ) -> None:
+        raise self.get_or_create_error(code_suffix, context, **kwargs)
+
+    def raise_error_without_context(self, code_suffix: str, **kwargs) -> None:
+        raise self.get_or_create_error(code_suffix, None, **kwargs)
 
 
 class ErrorModule:
@@ -99,7 +150,7 @@ class ErrorModule:
 
         return error_def
 
-    def create_error(
+    def get_or_create_error(
             self,
             code_suffix: str,
             context: Optional[ErrorContext] = None,
@@ -107,12 +158,7 @@ class ErrorModule:
     ) -> BaseError:
         """创建特定错误的实例"""
         full_code = f"{self.module_name}/{code_suffix}"
-        error_def = self.registry.get_error_def(full_code)
-
-        if not error_def:
-            raise ValueError(f"未找到错误定义 {full_code}")
-
-        return BaseError(error_def, context, **kwargs)
+        return self.registry.get_or_create_error(full_code, context, **kwargs)
 
     def raise_error(
             self,
@@ -120,5 +166,14 @@ class ErrorModule:
             context: Optional[ErrorContext] = None,
             **kwargs
     ) -> None:
-        """创建并抛出错误"""
-        raise self.create_error(code_suffix, context, **kwargs)
+        """抛出错误"""
+        raise self.get_or_create_error(code_suffix, context, **kwargs)
+
+    # TODO, 支持 Error_Name, 支持 Module.Error_Name 调用
+    # def __getattr__(self, code: str) -> BaseError:
+    #     """通过属性访问错误，提供更便捷的语法糖"""
+    #     try:
+    #         if code is not None:
+    #             return self.crate_error(code)
+    #     except ValueError as e:
+    #         raise AttributeError(str(e))

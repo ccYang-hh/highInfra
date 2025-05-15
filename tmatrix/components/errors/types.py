@@ -2,7 +2,10 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, Optional, TypeVar
+from typing import Any, Dict, Optional
+
+from tmatrix.components.logging import init_logger
+logger = init_logger("components/errors")
 
 
 class ErrorCategory(str, Enum):
@@ -12,6 +15,14 @@ class ErrorCategory(str, Enum):
     SYSTEM = "system"            # 系统内部错误
     EXTERNAL = "external"        # 外部系统错误
     SECURITY = "security"        # 安全相关错误
+
+
+SYSTEM_UNKNOWN_ERROR = "000000"
+
+# 公共ERRORS，在Registry初始化时即注册
+COMMON_ERRORS = [
+    (SYSTEM_UNKNOWN_ERROR, "系统未知错误!"),
+]
 
 
 @dataclass
@@ -66,9 +77,11 @@ class ErrorDefinition:
 
         try:
             return self.message.format(**kwargs)
-        except KeyError as e:
+        except KeyError:
             # 如果缺少格式化参数，添加提示但仍返回有意义的消息
-            return f"{self.message} (格式化错误: 缺少参数 {e})"
+            e_message = f"{self.message} (格式化错误: 缺少参数 {KeyError})"
+            logger.error(e_message)
+            return e_message
         except Exception:
             # 其他格式化错误，返回原始消息
             return self.message
