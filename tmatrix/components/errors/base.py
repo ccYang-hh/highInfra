@@ -1,57 +1,80 @@
+import traceback
 from typing import Any, Dict, Optional
 
-from .types import ErrorContext, ErrorDefinition
+from .types import ErrorContext, ErrorInfo
 
 
-class BaseError(Exception):
-    """应用错误基类，所有自定义错误继承此类"""
+class AppError(Exception):
+    """统一应用错误类，所有错误都通过此类表示"""
 
     def __init__(
             self,
-            error_def: ErrorDefinition,
+            info: ErrorInfo,
             context: Optional[ErrorContext] = None,
             **kwargs
     ):
-        self.error_def = error_def
+        self.info = info
         self.context = context or ErrorContext()
-        self.params = kwargs  # 保存格式化参数，便于后续使用
+        self.params = kwargs
 
-        # 格式化错误消息
-        self.message = error_def.format_message(**kwargs)
+        # 格式化消息
+        self.message = info.message
+        if kwargs:
+            try:
+                self.message = info.message.format(**kwargs)
+            except (KeyError, ValueError):
+                # 格式化失败，保留原始消息
+                pass
 
-        # 调用父类构造函数
         super().__init__(self.message)
 
+    @classmethod
+    def from_exception(cls, exception: Exception, error_info: ErrorInfo) -> 'AppError':
+        """从普通异常创建应用错误"""
+        context = ErrorContext().with_data(
+            cause=exception,
+            exception_type=type(exception).__name__,
+            exception_msg=str(exception),
+            traceback=traceback.format_exc()
+        )
+        return cls(error_info, context)
+
+    # 增加context相关的方法
+    def with_context(self, **kwargs) -> 'AppError':
+        """添加上下文信息，返回自身"""
+        self.context.with_data(**kwargs)
+        return self
+
+    def set_context(self, context: ErrorContext) -> 'AppError':
+        """设置完整的上下文"""
+        self.context = context
+        return self
+
+    def merge_context(self, context: ErrorContext) -> 'AppError':
+        """合并上下文"""
+        self.context = self.context.merge(context)
+        return self
+
     def to_dict(self) -> Dict[str, Any]:
-        """将错误转换为字典表示"""
-        return {
+        """将错误转换为字典"""
+        result = {
             "error": {
-                "code": self.error_def.code,
+                "code": self.info.code,
                 "message": self.message,
-                "category": self.error_def.category.value,
+                "category": self.info.category,
                 "context": {
                     "trace_id": self.context.trace_id,
                     "timestamp": self.context.timestamp,
-                    # 只包含非空值，**(...)用于字典解构
-                    **({"request_id": self.context.request_id} if self.context.request_id else {}),
-                    **({"user_id": self.context.user_id} if self.context.user_id else {}),
-                    **({"session_id": self.context.session_id} if self.context.session_id else {}),
-                    **({"metadata": self.context.metadata} if self.context.metadata else {})
                 }
             }
         }
 
-    @classmethod
-    def wrap_exception(cls, exception: Exception, error_def: ErrorDefinition,
-                       context: Optional[ErrorContext] = None) -> 'BaseError':
-        """包装一个标准的Exception -> BaseError"""
-        base_error = cls(error_def, context)
+        # 添加可选字段
+        if self.context.request_id:
+            result["error"]["context"]["request_id"] = self.context.request_id
+        if self.context.user_id:
+            result["error"]["context"]["user_id"] = self.context.user_id
+        if self.context.metadata:
+            result["error"]["context"]["metadata"] = self.context.metadata
 
-        # 保存原始异常信息
-        if context:
-            context.with_metadata("original_exception", {
-                "type": type(exception).__name__,
-                "message": str(exception)
-            })
-
-        return base_error
+        return result

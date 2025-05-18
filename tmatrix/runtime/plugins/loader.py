@@ -1,19 +1,23 @@
 import sys
 import importlib.util
-from typing import Optional, Any, Dict
+from typing import Optional, Any, Dict, TypeVar
 
 from tmatrix.components.logging import init_logger
-from tmatrix.runtime.config import RuntimeConfig
 
 logger = init_logger("runtime/plugins")
 
+T = TypeVar("T")
+
 
 class PluginLoader:
-    """插件加载器"""
+    """
+    TODO, 分离Loader
+    插件加载器
+    """
     @staticmethod
-    def load_plugin(runtime_config: RuntimeConfig, name: str) -> Optional[Any]:
+    def load_plugin(config: T, name: str) -> Optional[Any]:
         """加载指定的插件"""
-        location = runtime_config.locate_plugin(name)
+        location = config.locate_plugin(name)
         if not location:
             return None
 
@@ -44,11 +48,11 @@ class PluginLoader:
         return None
 
     @staticmethod
-    def load_enabled_plugins(runtime_config: RuntimeConfig) -> Dict[str, Any]:
+    def load_enabled_plugins(config: T) -> Dict[str, Any]:
         """加载所有启用的插件"""
         result = {}
-        for name, _ in runtime_config.plugin_registry.get_enabled_plugins():
-            plugin = PluginLoader.load_plugin(runtime_config, name)
+        for name, _ in config.plugin_registry.get_enabled_plugins():
+            plugin = PluginLoader.load_plugin(config, name)
             if plugin:
                 result[name] = plugin
         return result

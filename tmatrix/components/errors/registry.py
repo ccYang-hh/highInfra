@@ -1,179 +1,98 @@
 from typing import Dict, Optional
 
-from .base import BaseError
-from .types import ErrorCategory, ErrorContext, ErrorDefinition, COMMON_ERRORS
+from .types import ErrorCategory, ErrorContext, ErrorInfo
+
+
+class ErrorDef:
+    """错误定义帮助类，用于创建ErrorInfo"""
+    def __init__(self,
+                 code: str,
+                 message: str,
+                 status_code: int = 500,
+                 category: ErrorCategory = ErrorCategory.SYSTEM):
+        self.code = code
+        self.message = message
+        self.status_code = status_code
+        self.category = category
+
+    def __set_name__(self, owner, name):
+        # 当作为类变量使用时，自动注册到错误组
+        if hasattr(owner, '_error_module'):
+            module = owner._error_module
+            registry = ErrorRegistry()
+            error_info = registry.register(
+                module, self.code, self.message,
+                self.status_code, self.category
+            )
+            # 替换自身为ErrorInfo实例
+            setattr(owner, name, error_info)
+
+
+def error_group(module_name: str):
+    """错误组装饰器，简化错误定义"""
+    def decorator(cls):
+        cls._error_module = module_name.upper()
+        # 处理已存在的类变量
+        for name, attr in list(cls.__dict__.items()):
+            if isinstance(attr, ErrorDef):
+                # 这会触发ErrorDef.__set_name__
+                setattr(cls, name, attr)
+        return cls
+    return decorator
 
 
 class ErrorRegistry:
-    """错误注册中心，管理所有模块的错误定义"""
-
-    _instance = None  # 单例模式实现
+    """错误注册表单例"""
+    _instance = None
 
     def __new__(cls):
         if cls._instance is None:
             cls._instance = super(ErrorRegistry, cls).__new__(cls)
+            cls._instance._initialize()
         return cls._instance
 
-    def __init__(self):
-        # 幂等初始化防护
-        if not hasattr(self, '_initialized'):
-            self._modules = {}               # 模块名称 -> 错误定义字典
-            self._error_codes = set()        # 已注册的错误码集合，用于检测重复
-            self._definition_cache = {}      # error_def缓存
-            self._error_instance_cache = {}  # 错误实例缓存, (code, frozenset or None) -> BaseError
-            self.register_defaults()         # 注册预置错误
-            self._initialized = True         # 初始化标志
+    def _initialize(self):
+        self._errors: Dict[str, ErrorInfo] = {}
+        # 注册系统默认错误
+        self.register("SYSTEM", "UNKNOWN", "系统未知错误", 500)
 
-    def register_defaults(self):
-        """注册预置错误"""
-        module = self.get_module('system')
-        define_fn = module.define
-        for params in COMMON_ERRORS:
-            define_fn(*params)
+    def register(self,
+                 module: str,
+                 code: str,
+                 message: str,
+                 status_code: int = 500,
+                 category: ErrorCategory = ErrorCategory.SYSTEM) -> ErrorInfo:
+        """注册新错误"""
+        full_code = f"{module.upper()}/{code}"
 
-    def get_module(self, module_name: str) -> 'ErrorModule':
-        """获取模块注册器，如果不存在则创建"""
-        module_name = module_name.upper()  # 规范化模块名称
+        if full_code in self._errors:
+            raise ValueError(f"错误码 {full_code} 已注册")
 
-        if module_name not in self._modules:
-            self._modules[module_name] = {}
-
-        return ErrorModule(self, module_name)
-
-    def register_error(self, module_name: str, code: str, error_def: ErrorDefinition) -> None:
-        """注册错误定义"""
-        module_name = module_name.upper()
-
-        # 检查错误码是否已存在
-        if code in self._error_codes:
-            raise ValueError(f"错误码 {code} 已被注册")
-
-        # 注册错误定义
-        if module_name not in self._modules:
-            self._modules[module_name] = {}
-
-        self._modules[module_name][code] = error_def
-        self._error_codes.add(code)
-
-        # 添加到缓存
-        self._definition_cache[code] = error_def
-
-    def get_error_def(self, code: str) -> Optional[ErrorDefinition]:
-        """根据错误码获取错误定义"""
-        # 先查缓存
-        if code in self._definition_cache:
-            return self._definition_cache[code]
-
-        # 遍历所有模块查找错误定义
-        for module_errors in self._modules.values():
-            if code in module_errors:
-                self._definition_cache[code] = module_errors[code]
-                return module_errors[code]
-        return None
-
-    def get_or_create_error(self,
-                            code: str,
-                            context: Optional[ErrorContext] = None,
-                            **kwargs) -> BaseError:
-        """获取或创建错误实例，统一缓存管理"""
-        error_def = self.get_error_def(code)
-        if not error_def:
-            raise ValueError(f"未找到错误定义 {code}")
-
-        # 如果有context，不使用缓存
-        if context is not None:
-            return BaseError(error_def, context, **kwargs)
-
-        # 构建缓存键：无参数时使用None，有参数时使用frozenset
-        param_key = frozenset(kwargs.items()) if kwargs else None
-        cache_key = (code, param_key)
-
-        # 检查缓存
-        if cache_key in self._error_instance_cache:
-            return self._error_instance_cache[cache_key]
-
-        # 缓存未命中，创建新错误并缓存
-        error = BaseError(error_def, None, **kwargs)
-        self._error_instance_cache[cache_key] = error
-        return error
-
-    def list_all_errors(self) -> Dict[str, Dict[str, ErrorDefinition]]:
-        """列出所有注册的错误"""
-        return self._modules.copy()
-
-    def clear(self) -> None:
-        """清除所有注册的错误（主要用于测试）"""
-        self._modules.clear()
-        self._error_codes.clear()
-        self._definition_cache.clear()
-
-    def raise_error(
-            self,
-            code_suffix: str,
-            context: Optional[ErrorContext] = None,
-            **kwargs
-    ) -> None:
-        raise self.get_or_create_error(code_suffix, context, **kwargs)
-
-    def raise_error_without_context(self, code_suffix: str, **kwargs) -> None:
-        raise self.get_or_create_error(code_suffix, None, **kwargs)
-
-
-class ErrorModule:
-    """模块错误注册器，用于管理特定模块的错误"""
-
-    def __init__(self, registry: ErrorRegistry, module_name: str):
-        self.registry = registry
-        self.module_name = module_name.upper()  # 规范化模块名称
-
-    def define(
-            self,
-            code_suffix: str,
-            message: str,
-            status_code: int = 500,
-            category: ErrorCategory = ErrorCategory.SYSTEM
-    ) -> ErrorDefinition:
-        """定义并注册错误"""
-        # 构建完整错误码
-        full_code = f"{self.module_name}/{code_suffix}"
-
-        # 创建错误定义
-        error_def = ErrorDefinition(
+        info = ErrorInfo(
             code=full_code,
             message=message,
             status_code=status_code,
             category=category
         )
 
-        # 在注册中心注册错误
-        self.registry.register_error(self.module_name, full_code, error_def)
+        self._errors[full_code] = info
+        return info
 
-        return error_def
+    def get(self, code: str) -> Optional[ErrorInfo]:
+        """获取错误信息"""
+        # 尝试直接获取
+        if code in self._errors:
+            return self._errors[code]
 
-    def get_or_create_error(
-            self,
-            code_suffix: str,
-            context: Optional[ErrorContext] = None,
-            **kwargs
-    ) -> BaseError:
-        """创建特定错误的实例"""
-        full_code = f"{self.module_name}/{code_suffix}"
-        return self.registry.get_or_create_error(full_code, context, **kwargs)
+        # 尝试添加模块前缀后获取
+        if "/" not in code:
+            # 查找所有可能匹配的错误
+            for full_code in self._errors:
+                if full_code.endswith("/" + code):
+                    return self._errors[full_code]
 
-    def raise_error(
-            self,
-            code_suffix: str,
-            context: Optional[ErrorContext] = None,
-            **kwargs
-    ) -> None:
-        """抛出错误"""
-        raise self.get_or_create_error(code_suffix, context, **kwargs)
+        return None
 
-    # TODO, 支持 Error_Name, 支持 Module.Error_Name 调用
-    # def __getattr__(self, code: str) -> BaseError:
-    #     """通过属性访问错误，提供更便捷的语法糖"""
-    #     try:
-    #         if code is not None:
-    #             return self.crate_error(code)
-    #     except ValueError as e:
-    #         raise AttributeError(str(e))
+    def get_or_unknown(self, code: str) -> ErrorInfo:
+        """获取错误信息或返回未知错误"""
+        return self.get(code) or self._errors["SYSTEM/UNKNOWN"]

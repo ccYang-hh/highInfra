@@ -1,29 +1,23 @@
-from typing import List, Tuple
-
-from tmatrix.components.errors.registry import ErrorRegistry
-from tmatrix.components.errors.types import ErrorContext, ErrorCategory
-from tmatrix.components.errors.error_handler import ErrorHandler
-from tmatrix.components.errors.adapters import JsonOutputAdapter
-
-
-Registry = ErrorRegistry()
-
-
-def register_errors(module_name: str, module_errors: List[Tuple]) -> None:
-    module = Registry.get_module(module_name)
-
-    define_fn = module.define
-    for params in module_errors:
-        define_fn(*params)
+from .types import ErrorInfo, ErrorContext, ErrorCategory
+from .base import AppError
+from .registry import error_group, ErrorDef, ErrorRegistry
+from .errors import Errors
+from .error_handler import create_handler, BaseErrorHandler, WebErrorHandler, JsonErrorHandler, LogErrorHandler
 
 
 __all__ = [
-    'Registry',
-    'ErrorRegistry',
-    'ErrorHandler',
+    'error_group',
+    'ErrorInfo',
     'ErrorContext',
     'ErrorCategory',
-    'JsonOutputAdapter',
+    'AppError',
+    'ErrorDef',
+    'ErrorRegistry',
+    'Errors',
 
-    'register_errors',
+    'create_handler',
+    'BaseErrorHandler',
+    'WebErrorHandler',
+    'JsonErrorHandler',
+    'LogErrorHandler',
 ]

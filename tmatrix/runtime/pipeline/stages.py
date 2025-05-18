@@ -3,7 +3,8 @@ from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional, Set, TypeVar
 
 from tmatrix.components.logging import init_logger
-from ..context import RequestContext
+from tmatrix.runtime.core.context import RequestContext
+from .hooks import StageHook
 
 logger = init_logger("runtime/pipeline")
 
@@ -26,8 +27,12 @@ class PipelineStage(ABC):
             name: 阶段名称，默认为类名
             enabled: 是否启用此阶段
         """
+        self._initialized = False
         self._name = name or self.__class__.__name__
         self._enabled = enabled
+        # TODO 当前Pipeline执行流中，所有Stage按序串行执行
+        #   1.当前_next_stages长度固定为1，支持DAG后，支持max_parallelism个数的Stage并行执行
+        #   2.同理_prerequisites当前不起作用
         self._next_stages: List["PipelineStage"] = []
         self._prerequisites: Set[str] = set()
         self._config: Dict[str, Any] = {}
@@ -36,6 +41,29 @@ class PipelineStage(ABC):
             "after": [],
             "error": []
         }
+
+    async def initialize(self) -> None:
+        self._initialized = True
+        await self._on_initialize()
+
+    async def _on_initialize(self) -> None:
+        """
+        Stage特定的初始化逻辑（由子类实现）
+        """
+        pass
+
+    async def shutdown(self) -> None:
+        if self._initialized:
+            # 子类特定的关闭逻辑
+            await self._on_shutdown()
+
+        self._initialized = False
+
+    async def _on_shutdown(self) -> None:
+        """
+        插件特定的关闭逻辑（由子类实现）
+        """
+        pass
 
     @property
     def name(self) -> str:
@@ -212,7 +240,7 @@ class PipelineStage(ABC):
             await self._execute_hooks("error", context, error=e)
 
             # 传播异常
-            raise
+            raise RuntimeError(f"Stage阶段执行异常: {self.name} failed: {e}")
 
     def __str__(self) -> str:
         status = "enabled" if self._enabled else "disabled"

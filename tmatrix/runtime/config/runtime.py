@@ -1,16 +1,39 @@
+import copy
+import asyncio
+import threading
 from pathlib import Path
-from typing import Any, Dict, List, get_type_hints, Optional, Tuple
+from http import HTTPMethod
 from dataclasses import dataclass, field, asdict, fields
+from typing import Any, Dict, List, get_type_hints, Tuple, Optional, Callable
 
 from tmatrix.components.logging import init_logger
+from tmatrix.components.errors import AppError
 from tmatrix.runtime.service_discovery import ServiceDiscoveryType
+from tmatrix.runtime.utils import ConfigEvent, EventBus
+from tmatrix.runtime.config import ConfigValidator, FileConfigSource
+from tmatrix.components.logging import init_logger
 
 logger = init_logger("runtime/config")
 
 
+# 导出获取配置管理器的便捷函数
+def get_config_manager(config_path = None, event_bus: Optional[EventBus] = None):
+    """
+    获取配置管理器实例
+
+    Args:
+        config_path: 可选的配置文件路径
+        event_bus: 全局事件总线
+
+    Returns:
+        ConfigManager实例
+    """
+    return RuntimeConfigManager.get_instance(config_path, event_bus)
+
+
 @dataclass
 class PluginInfo:
-    """插件信息类 - 简化了职责"""
+    """插件信息类"""
     enabled: bool = True
     module: Optional[str] = None
     path: Optional[str] = None
@@ -98,17 +121,36 @@ class PluginRegistryConfig:
 
 
 @dataclass
+class PipelineRoute:
+    path: str
+    method: HTTPMethod
+
+
+@dataclass
 class PipelineConfig:
     """管道配置类"""
-    max_parallelism: int = 1
-    stages: List[str] = field(default_factory=list)
-    connections: List[Dict[str, str]] = field(default_factory=list)
-    entry_points: List[str] = field(default_factory=list)
-    exit_points: List[str] = field(default_factory=list)
+    pipeline_name: str
+    plugins: List[str] = field(default_factory=list)
+    routes: List[PipelineRoute] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
         """将Pipeline配置对象转换为字典"""
         return asdict(self)
+
+    @staticmethod
+    def from_dict(data: Dict[str, Any]) -> "PipelineConfig":
+        routes = [
+            PipelineRoute(
+                path=route["path"],
+                method=HTTPMethod(route["method"])
+            )
+            for route in data.get("routes", [])
+        ]
+        return PipelineConfig(
+            pipeline_name=data["pipeline_name"],
+            plugins=data.get("plugins", []),
+            routes=routes
+        )
 
 
 @dataclass
@@ -135,9 +177,7 @@ class RuntimeConfig:
     plugin_registry: PluginRegistryConfig = field(default_factory=PluginRegistryConfig)
 
     # 管道配置
-    pipelines: Dict[str, PipelineConfig] = field(
-        default_factory=lambda: {"main": PipelineConfig(max_parallelism=4)}
-    )
+    pipelines: List[PipelineConfig] = field(default_factory=list[PipelineConfig])
 
     # 性能配置
     worker_threads: int = 8
@@ -154,7 +194,7 @@ class RuntimeConfig:
 
     def to_dict(self) -> Dict[str, Any]:
         """将配置对象转换为字典"""
-        return asdict(self) # 直接使用asdict, 这会递归地将所有嵌套的对象也转换为字典
+        return asdict(self)  # 直接使用asdict, 这会递归地将所有嵌套的对象也转换为字典
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "RuntimeConfig":
@@ -179,10 +219,8 @@ class RuntimeConfig:
         processed_data["plugin_registry"] = plugin_registry
 
         # 处理管道配置
-        pipelines_data = data.get("pipelines", {})
-        pipelines = {}
-        for name, config in pipelines_data.items():
-            pipelines[name] = PipelineConfig(**config)
+        pipelines_data = data.get("pipelines", [])
+        pipelines = [PipelineConfig.from_dict(item) for item in pipelines_data]
         processed_data["pipelines"] = pipelines
 
         # 其他RuntimeConfig字段
@@ -239,3 +277,189 @@ class RuntimeConfig:
         if name not in self.plugin_registry.plugins:
             return None
         return self.plugin_registry.plugins[name].config_path
+
+
+class RuntimeConfigManager:
+    """运行时配置管理器单例"""
+
+    _instance = None
+    _lock = threading.RLock()
+
+    @classmethod
+    def get_instance(cls, config_path: Optional[str] = None,
+                     event_bus: Optional[EventBus] = None) -> 'RuntimeConfigManager':
+        """获取单例实例"""
+        with cls._lock:
+            if cls._instance is None:
+                cls._instance = cls(config_path, event_bus)
+            return cls._instance
+
+    def __init__(self, config_path: Optional[str] = None, event_bus: Optional[EventBus] = None):
+        """
+        初始化运行时配置管理器
+
+        Args:
+            config_path: 配置文件路径
+        """
+        self.config_path = config_path or "config.yaml"
+        self.validator = ConfigValidator()
+
+        # 创建事件总线
+        self._event_bus = event_bus
+
+        # 配置源
+        config_file = Path(self.config_path)
+        self._config_source = FileConfigSource("runtime", config_file)
+
+        # 配置管理锁
+        self._config_lock = threading.RLock()
+
+        # 加载配置
+        raw_config = self._config_source.get_config()
+
+        # 验证配置
+        try:
+            self.validator.validate_config(raw_config, "runtime")
+        except AppError as app_error:
+            logger.warning(f"运行时配置验证发现问题: {app_error}")
+            raise app_error
+
+        self._config = RuntimeConfig.from_dict(raw_config)
+
+        # 启动文件监控
+        self._config_source.start_watcher(self._on_config_change)
+
+        self._closed = False
+
+    @property
+    def closed(self):
+        return self._closed
+
+    def get_config(self):
+        """获取完整配置对象"""
+        if self._closed:
+            raise RuntimeError("Runtime进程已退出")
+
+        with self._config_lock:
+            return copy.deepcopy(self._config)
+
+    def reload(self):
+        """重新加载配置（手动触发）"""
+        self._on_config_change()
+        return self.get_config()
+
+    def _on_config_change(self):
+        """配置文件变更处理"""
+        with self._config_lock:
+            logger.info("检测到变更，Runtime配置热更新......")
+
+            # 加载新配置
+            raw_config = self._config_source.get_config()
+
+            # 验证配置
+            try:
+                self.validator.validate_config(raw_config, "runtime")
+            except AppError as app_error:
+                logger.warning(f"运行时配置验证发现问题: {app_error}")
+                raise app_error
+
+
+            # 更新当前配置
+            new_config = RuntimeConfig.from_dict(raw_config)
+            self._config = new_config
+
+            # 发布变更事件
+            self._publish_config_change()
+
+    def _publish_config_change(self):
+        """发布配置变更事件"""
+        # 创建事件
+        event = ConfigEvent(
+            source="runtime",
+            config=copy.deepcopy(self._config)
+        )
+
+        # 发布事件
+        self._event_bus.publish("config.runtime.changed", event)
+
+    def subscribe_events(self, callback: Callable[[ConfigEvent], None]) -> None:
+        """
+        订阅配置变更事件
+
+        Args:
+            callback: 回调函数，接收ConfigEvent参数
+        """
+        if self._closed:
+            raise RuntimeError("Runtime进程已退出")
+
+        self._event_bus.subscribe("config.runtime.changed", callback)
+
+    def unsubscribe_events(self, callback: Callable[[ConfigEvent], None]) -> None:
+        """
+        取消订阅配置变更事件
+
+        Args:
+            callback: 要取消的回调函数
+        """
+        if self._closed:
+            raise RuntimeError("Runtime进程已退出")
+
+        self._event_bus.unsubscribe("config.runtime.changed", callback)
+
+    def set_event_loop(self, loop: asyncio.AbstractEventLoop) -> None:
+        """设置异步事件循环"""
+        self._event_bus.set_event_loop(loop)
+
+    async def subscribe_async(self, callback: Callable[[ConfigEvent], None]) -> None:
+        """
+        异步订阅配置事件
+
+        Args:
+            callback: 异步回调函数
+        """
+        if self._closed:
+            raise RuntimeError("Runtime进程已退出")
+
+        await self._event_bus.subscribe_async("config.runtime.changed", callback)
+
+    async def unsubscribe_async(self, callback: Callable[[ConfigEvent], None]) -> None:
+        """
+        取消异步订阅
+
+        Args:
+            callback: 要取消的异步回调函数
+        """
+        if self._closed:
+            raise RuntimeError("Runtime进程已退出")
+
+        await self._event_bus.unsubscribe_async("config.runtime.changed", callback)
+
+    def close(self):
+        with self._config_lock:
+            try:
+                if hasattr(self._config_source, "stop_watcher"):
+                    self._config_source.stop_watcher()
+            except Exception as e:
+                logger.warning(f"关闭文件监控时异常: {e}")
+            try:
+                if hasattr(self._event_bus, "close"):
+                    self._event_bus.close()
+            except Exception as e:
+                logger.warning(f"事件总线关闭异常: {e}")
+            self._closed = True
+
+    async def aclose(self):
+        with self._config_lock:
+            try:
+                if hasattr(self._config_source, "stop_watcher"):
+                    self._config_source.stop_watcher()
+            except Exception as e:
+                logger.warning(f"关闭文件监控时异常: {e}")
+            try:
+                if hasattr(self._event_bus, "aclose"):
+                    await self._event_bus.aclose()
+                elif hasattr(self._event_bus, "close"):
+                    self._event_bus.close()
+            except Exception as e:
+                logger.warning(f"事件总线关闭异常: {e}")
+            self._closed = True

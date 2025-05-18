@@ -1,6 +1,20 @@
-from tmatrix.runtime.plugins.manager import PluginManager
-from tmatrix.runtime.plugins.interface import Plugin
-from tmatrix.runtime.plugins.loader import PluginLoader
-from tmatrix.runtime.plugins.config import PluginConfig
+from .config import (
+    IPluginConfig,
+    PluginConfig,
+    FileSourcePluginConfig,
+    TypedFileSourcePluginConfig
+)
+from .interface import Plugin
+from .loader import PluginLoader
+from .plugin_manager import PluginManager, PluginState
 
-__all__ = ['PluginManager', 'Plugin', 'PluginLoader', 'PluginConfig']
+__all__ = [
+    'IPluginConfig',
+    'PluginConfig',
+    'FileSourcePluginConfig',
+    'TypedFileSourcePluginConfig',
+    'Plugin',
+    'PluginLoader',
+    'PluginState',
+    'PluginManager',
+]

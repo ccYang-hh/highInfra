@@ -1,16 +1,163 @@
 import time
 import random
-from typing import Any, Dict, List, Optional
-from fastapi import APIRouter, HTTPException
+from typing import Any, Dict, List, Optional, Type, TypeVar
+from fastapi import APIRouter
 
 from tmatrix.components.logging import init_logger
-from tmatrix.runtime.plugins.interface import Plugin
-from tmatrix.runtime.pipeline.stages import PipelineStage
-from tmatrix.runtime.pipeline.hooks import StageHook
-from tmatrix.runtime.pipeline.pipeline import Pipeline
-from tmatrix.runtime.context import RequestContext, RequestState
+from tmatrix.runtime.service_discovery import Endpoint
+from tmatrix.runtime.pipeline import StageHook, PipelineHook, PipelineStage
+from tmatrix.runtime.plugins import Plugin, IPluginConfig
+from tmatrix.runtime.core import RequestContext, RequestState
+from .config import RouterConfig, RouterStrategy
+from .strategies import (
+    EngineStats,
+    RequestStats,
+    RouteStrategy,
+    RoundRobinStrategy,
+    SessionStrategy,
+    KVCacheAwareStrategy
+)
 
-logger = init_logger("plugin/router")
+logger = init_logger("plugins/router")
+
+T = TypeVar('T', bound='IPluginConfig')
+
+
+class RouterStage(PipelineStage):
+    """路由选择阶段"""
+
+    def __init__(self, config: Optional[RouterConfig] = None):
+        """初始化路由阶段"""
+        super().__init__("router")
+        self.config = config or RouterConfig()
+        self.routers = {}
+        self.current_strategy = self.config.default_strategy
+        self._init_routers()
+
+    def _init_routers(self):
+        """初始化所有支持的路由策略"""
+        # 初始化轮询路由
+        if RouterStrategy.RoundRobin in self.config.support_strategies:
+            self.routers[RouterStrategy.RoundRobin] = RouteStrategy()
+
+        # 初始化会话路由
+        if RouterStrategy.Session in self.config.support_strategies:
+            self.routers[RouterStrategy.Session] = SessionStrategy(
+                session_key=self.config.session_key
+            )
+
+        # 初始化KV缓存路由
+        if RouterStrategy.KVCacheAware in self.config.support_strategies and self.config.kv_cache_enabled:
+            self.routers[RouterStrategy.KVCacheAware] = KVCacheAwareStrategy(
+                lmcache_controller_port=self.config.lmcache_controller_port
+            )
+
+    def set_strategy(self, strategy: RouterStrategy):
+        """设置当前路由策略"""
+        if strategy in self.routers:
+            self.current_strategy = strategy
+            logger.info(f"Router strategy set to {strategy.name}")
+        else:
+            logger.warning(f"Router strategy {strategy.name} not supported, using current strategy")
+
+    async def process(self, context: RequestContext) -> None:
+        """处理请求上下文，选择合适的后端URL"""
+        if not context.model_name:
+            context.fail("Model name not specified")
+            return
+
+        context.set_state(RequestState.ROUTING)
+        start_time = time.time()
+
+        try:
+            # 获取可用端点
+            endpoints = self._get_endpoints_for_model(context.model_name, context)
+
+            if not endpoints:
+                context.error_message = f"No endpoints available for model {context.model_name}"
+                context.state = RequestState.FAILED
+                return
+
+            # 获取引擎和请求统计信息
+            engine_stats = self._get_engine_stats(context)
+            request_stats = self._get_request_stats(context)
+
+            # 选择当前的路由策略
+            router = self.routers.get(self.current_strategy)
+            if not router:
+                context.error_message = f"Router strategy {self.current_strategy.name} not initialized"
+                context.state = RequestState.FAILED
+                return
+
+            # 根据路由策略选择后端URL
+            backend_url = await router.route_request(
+                endpoints=endpoints,
+                engine_stats=engine_stats,
+                request_stats=request_stats,
+                context=context
+            )
+
+            # 将选择的后端URL设置到上下文
+            context.backend_url = backend_url
+
+            # 记录路由信息和耗时
+            end_time = time.time()
+            routing_time = end_time - start_time
+            logger.info(
+                f"Routing request {context.request_id} to {backend_url}, "
+                f"model: {context.model_name}, strategy: {self.current_strategy.name}, "
+                f"time: {routing_time:.4f}s"
+            )
+
+            # 将路由信息保存到上下文扩展中
+            context.extensions["routing_time"] = routing_time
+            context.extensions["routing_strategy"] = self.current_strategy.name
+        except Exception as e:
+            context.error = e
+            context.error_message = f"Routing error: {str(e)}"
+            context.state = RequestState.FAILED
+
+    @staticmethod
+    def _get_endpoints_for_model(model_name: str, context: RequestContext) -> List[Endpoint]:
+        """获取支持指定模型的端点列表"""
+        endpoints = []
+
+        # 尝试从app_state获取端点信息
+        if context.app_state and "endpoints" in context.app_state:
+            endpoints_data = context.app_state["endpoints"]
+            for info in endpoints_data:
+                if info.get("model_name") == model_name:
+                    endpoints_data.append(info)
+
+        return endpoints
+
+    @staticmethod
+    def _get_engine_stats(context: RequestContext) -> Dict[str, EngineStats]:
+        """获取引擎统计信息"""
+        # 从上下文或扩展中获取引擎统计信息
+        engine_stats = {}
+
+        if context.app_state and "engine_stats" in context.app_state:
+            return context.app_state["engine_stats"]
+
+        if "engine_stats" in context.extensions:
+            return context.extensions["engine_stats"]
+
+        return engine_stats
+
+    @staticmethod
+    def _get_request_stats(context: RequestContext) -> Dict[str, RequestStats]:
+        """获取请求统计信息"""
+        # 从上下文或扩展中获取请求统计信息
+        request_stats = {}
+
+        if context.app_state and "request_stats" in context.app_state:
+            return context.app_state["request_stats"]
+
+        if "request_stats" in context.extensions:
+            return context.extensions["request_stats"]
+
+        return request_stats
 
 
 class ModelResolutionStage(PipelineStage):
@@ -212,86 +359,41 @@ class RoutingMetricsHook(StageHook):
         return result
 
 
-class RouterPlugin(Plugin):
+class RouterPlugin(Plugin[RouterConfig]):
     """路由插件，提供模型解析和后端路由功能"""
 
     def __init__(self):
-        self.router = APIRouter(tags=["router"])
+        super().__init__()
         self.model_resolution_stage = ModelResolutionStage()
         self.routing_stage = BackendRoutingStage()
         self.metrics_hook = RoutingMetricsHook()
+        self.router_stage: Optional[RouterStage] = None
 
-    def get_name(self) -> str:
-        return "router"
+    def _default_plugin_name(self) -> str:
+        return "vllm_router"
 
-    def get_version(self) -> str:
-        return "1.0.0"
+    def _default_version(self) -> str:
+        return "0.0.1"
 
-    def get_description(self) -> str:
-        return "Provides model resolution and backend routing functionality"
+    def get_config_class(self) -> Optional[Type[T]]:
+        return RouterConfig
 
-    async def initialize(self, config: Dict[str, Any]) -> None:
+    async def _on_initialize(self) -> None:
         """初始化路由插件"""
-        # 配置路由阶段
-        backends = config.get("backends", [])
-        strategy = config.get("strategy", "round_robin")
+        if not self.config or not isinstance(self.config, RouterConfig):
+            raise ValueError("路由插件需要RouterConfig配置")
 
-        self.routing_stage.configure({
-            "backends": backends,
-            "strategy": strategy
-        })
+        self.router_stage = RouterStage(self.config)
+        logger.info(f"路由插件初始化成功，使用策略: {self.config.default_strategy}")
 
-        # 设置API路由
-        self._setup_api_routes()
-
-        logger.info(f"Initialized router plugin with {len(backends)} backends using {strategy} strategy")
-
-    async def shutdown(self) -> None:
+    async def _on_shutdown(self) -> None:
         """关闭路由插件"""
-        logger.info("Shutting down router plugin")
+        logger.info("Router插件已关闭")
 
     def get_pipeline_stages(self) -> List[PipelineStage]:
         """获取管道阶段"""
-        return [self.model_resolution_stage, self.routing_stage]
+        return [self.router_stage]
 
     def get_stage_hooks(self) -> List[StageHook]:
         """获取阶段钩子"""
         return [self.metrics_hook]
-
-    def get_api_router(self) -> APIRouter:
-        """获取API路由"""
-        return self.router
-
-    def configure_pipeline(self, pipeline: Pipeline) -> None:
-        """配置管道连接"""
-        # 如果两个阶段都在管道中，确保它们正确连接
-        if (self.model_resolution_stage.name in pipeline.stages and
-                self.routing_stage.name in pipeline.stages):
-            pipeline.connect(self.model_resolution_stage.name, self.routing_stage.name)
-
-    def _setup_api_routes(self) -> None:
-        """设置API路由"""
-        @self.router.get("/backends")
-        async def get_backends():
-            """获取所有后端"""
-            return {"backends": self.routing_stage.get_backends()}
-
-        @self.router.post("/backends")
-        async def add_backend(backend: Dict[str, Any]):
-            """添加后端"""
-            if not backend.get("id") or not backend.get("url"):
-                raise HTTPException(status_code=400, detail="Backend must have id and url")
-
-            self.routing_stage.add_backend(backend)
-            return {"status": "ok", "backend": backend}
-
-        @self.router.delete("/backends/{backend_id}")
-        async def remove_backend(backend_id: str):
-            """移除后端"""
-            self.routing_stage.remove_backend(backend_id)
-            return {"status": "ok"}
-
-        @self.router.get("/metrics")
-        async def get_metrics():
-            """获取路由指标"""
-            return self.metrics_hook.get_metrics()

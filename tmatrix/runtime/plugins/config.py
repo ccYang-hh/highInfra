@@ -1,344 +1,223 @@
-import os
-import yaml
-import json
 import threading
+from abc import ABC
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Callable
+from dataclasses import dataclass
+from typing import Dict, Optional, Any, Callable, List
 
 from tmatrix.components.logging import init_logger
+from tmatrix.runtime.config import FileConfigSource
+
+
 logger = init_logger("runtime/plugins")
 
 
-class PluginConfig:
+class IPluginConfig(ABC):
     """
-    插件配置基类
-    为插件提供独立的配置管理能力
+    插件配置接口
+
+    所有插件配置类的基础接口，无论是复杂配置还是简单配置
     """
 
-    def __init__(self,
-                 plugin_name: str,
-                 config_dir: Optional[str] = None,
-                 defaults: Dict[str, Any] = None,
-                 schema: Dict[str, Any] = None):
+    def __init__(self, plugin_name: str):
+        """
+        初始化配置
+
+        Args:
+            plugin_name: 插件名称
+            TODO 优化plugin_name 不强制一致
+        """
+        self.plugin_name = plugin_name
+
+
+class PluginConfig(IPluginConfig):
+    """
+    插件配置类
+
+    适用于不需要外部配置文件的插件
+    """
+
+    def __init__(self, plugin_name: str):
+        """
+        初始化简单插件配置
+
+        Args:
+            plugin_name: 插件名称
+        """
+        super().__init__(plugin_name)
+
+
+class FileSourcePluginConfig(IPluginConfig):
+    """
+    文件插件配置基类
+
+        1.需要接入外部配置源的插件配置需要继承此基类
+        2.其余场景，可以使用PluginConfig
+    """
+
+    def __init__(self, plugin_name: str, config_dir: Optional[str] = None):
         """
         初始化插件配置
 
         Args:
-            plugin_name: 插件名称，用于配置文件命名
-            config_dir: 配置目录，默认为 "config/plugins"
-            defaults: 默认配置
-            schema: 配置验证模式
+            plugin_name: 插件名称
+            config_dir: 配置目录
         """
-        self.plugin_name = plugin_name
-        self.config_dir = config_dir or "config/plugins"
-        self.defaults = defaults or {}
-        self.schema = schema or {}
+        super().__init__(plugin_name)
+        self.config_dir = config_dir or "./configs"
+        self._lock = threading.RLock()
+        self._callbacks: List[Callable[[Dict[str, Any]], None]] = []
 
-        # 当前配置
-        self.config = self.defaults.copy()
+        # 初始化配置
+        self._config_file_path = self._find_config_file()
 
-        # 配置文件路径
-        self.config_path = self._get_config_path()
+        # 创建配置源
+        self._config_source = None
+        if self._config_file_path:
+            self._config_source = FileConfigSource(
+                source_id=f"plugin:{plugin_name}",
+                config_path=self._config_file_path
+            )
+        else:
+            logger.warning(f"插件 {plugin_name} 配置文件不存在")
 
-        # 配置变更监听器
-        self._change_listeners = []
+        # 加载初始配置
+        self._config_data = self.load_config()
 
-        # 文件监视线程
-        self._watch_thread = None
-        self._watch_stop_event = threading.Event()
+        # 应用到实例
+        self.update_from_dict(self._config_data)
 
-        # 加载配置
-        self.load()
+    def _find_config_file(self) -> Optional[Path]:
+        """查找配置文件路径"""
+        for ext in ['yaml', 'yml', 'json']:
+            path = Path(self.config_dir) / f"{self.plugin_name}.{ext}"
+            if path.exists():
+                return path
+        return None
 
-    def _get_config_path(self) -> Path:
-        """获取配置文件路径"""
-        # 环境变量中的配置路径优先
-        env_path = os.environ.get(f"PLUGIN_{self.plugin_name.upper()}_CONFIG")
-        if env_path:
-            return Path(env_path)
-
-        # 默认路径: config_dir/plugin_name.yaml
-        return Path(self.config_dir) / f"{self.plugin_name}.yaml"
-
-    def load(self) -> Dict[str, Any]:
+    def load_config(self) -> Dict[str, Any]:
         """
-        加载配置
+        加载当前配置
 
         Returns:
-            当前配置
+            配置字典
         """
-        # 先使用默认值
-        config = self.defaults.copy()
+        with self._lock:
+            if not self._config_source:
+                return {}
 
-        # 然后从文件加载
-        if self.config_path.exists():
             try:
-                with open(self.config_path, "r") as f:
-                    suffix = self.config_path.suffix.lower()
-                    if suffix in (".yaml", ".yml"):
-                        file_config = yaml.safe_load(f) or {}
-                    elif suffix == ".json":
-                        file_config = json.load(f)
-                    else:
-                        logger.warning(f"Unsupported config file format: {suffix}")
-                        file_config = {}
-
-                # 合并配置
-                self._merge_configs(config, file_config)
-                logger.info(f"Loaded plugin config from {self.config_path}")
+                return self._config_source.get_config()
             except Exception as e:
-                logger.error(f"Error loading plugin config from {self.config_path}: {e}")
+                logger.error(f"加载插件 {self.plugin_name} 配置出错: {e}")
+                return {}
 
-        # 从环境变量加载特定于插件的配置
-        prefix = f"PLUGIN_{self.plugin_name.upper()}_"
-        for name, value in os.environ.items():
-            if name.startswith(prefix):
-                # 提取键
-                key = name[len(prefix):].lower()
+    def start_file_watcher(self) -> None:
+        """开始监控配置变化"""
+        with self._lock:
+            if not self._config_source:
+                logger.warning(f"插件 {self.plugin_name} 没有可用的配置源，不启动监控")
+                return
 
-                # 转换值
-                if value.lower() == "true":
-                    typed_value = True
-                elif value.lower() == "false":
-                    typed_value = False
-                elif value.isdigit():
-                    typed_value = int(value)
-                elif self._is_float(value):
-                    typed_value = float(value)
-                else:
-                    typed_value = value
+            try:
+                self._config_source.start_watcher(self._on_config_change)
+                logger.debug(f"插件 {self.plugin_name} 配置监控已启动")
+            except Exception as e:
+                logger.error(f"启动插件 {self.plugin_name} 配置监控失败: {e}")
 
-                # 设置配置
-                self._set_nested_key(config, key, typed_value, separator='_')
+    def stop_file_watcher(self) -> None:
+        """停止监控配置变化"""
+        with self._lock:
+            if not self._config_source:
+                return
 
-        # 更新当前配置
-        old_config = self.config
-        self.config = config
+            try:
+                self._config_source.stop_watcher()
+                logger.debug(f"插件 {self.plugin_name} 配置监控已停止")
+            except Exception as e:
+                logger.error(f"停止插件 {self.plugin_name} 配置监控时出错: {e}")
 
-        # 通知变更
-        self._notify_changes(old_config, config)
-
-        return config
-
-    def _is_float(self, value: str) -> bool:
-        """检查字符串是否可转换为浮点数"""
+    def _on_config_change(self) -> None:
+        """配置变更内部处理方法"""
         try:
-            float(value)
-            return True
-        except ValueError:
-            return False
+            # 加载新配置
+            new_config = self.load_config()
 
-    def save(self, config: Optional[Dict[str, Any]] = None) -> None:
-        """
-        保存配置到文件
+            # 更新实例属性
+            self.update_from_dict(new_config)
 
-        Args:
-            config: 要保存的配置，默认为当前配置
-        """
-        config = config or self.config
-
-        try:
-            # 确保目录存在
-            os.makedirs(self.config_path.parent, exist_ok=True)
-
-            with open(self.config_path, "w") as f:
-                suffix = self.config_path.suffix.lower()
-                if suffix in (".yaml", ".yml"):
-                    yaml.dump(config, f, default_flow_style=False)
-                elif suffix == ".json":
-                    json.dump(config, f, indent=2)
-                else:
-                    logger.warning(f"Unsupported config file format: {suffix}")
-
-            logger.info(f"Saved plugin config to {self.config_path}")
+            # 通知回调函数
+            self._notify_config_change(new_config)
         except Exception as e:
-            logger.error(f"Error saving plugin config to {self.config_path}: {e}")
+            logger.error(f"处理配置变更时出错: {e}")
 
-    def get(self, key: str, default: Any = None) -> Any:
+    def add_config_change_callback(self, callback: Callable[[Dict[str, Any]], None]) -> None:
         """
-        获取配置值
+        添加配置变化回调
 
         Args:
-            key: 配置键，支持用点号分隔的嵌套路径
-            default: 默认值
-
-        Returns:
-            配置值或默认值
+            callback: 当配置变化时调用的回调函数
         """
-        parts = key.split('.')
-        value = self.config
+        with self._lock:
+            if callback not in self._callbacks:
+                self._callbacks.append(callback)
 
-        for part in parts:
-            if isinstance(value, dict) and part in value:
-                value = value[part]
-            else:
-                return default
-
-        return value
-
-    def set(self, key: str, value: Any, save: bool = True) -> None:
+    def remove_config_change_callback(self, callback: Callable[[Dict[str, Any]], None]) -> None:
         """
-        设置配置值
+        移除配置变化回调
 
         Args:
-            key: 配置键，支持用点号分隔的嵌套路径
-            value: 新值
-            save: 是否保存到文件
+            callback: 要移除的回调函数
         """
-        # 保存旧配置用于比较
-        old_config = self.config.copy()
+        with self._lock:
+            if callback in self._callbacks:
+                self._callbacks.remove(callback)
 
-        # 设置新值
-        parts = key.split('.')
-        target = self.config
+    def _notify_config_change(self, config: Dict[str, Any]) -> None:
+        """
+        通知配置变化
 
-        for part in parts[:-1]:
-            if part not in target:
-                target[part] = {}
-            target = target[part]
+        Args:
+            config: 新配置
+        """
+        callbacks = None
+        with self._lock:
+            # 复制回调列表，避免回调期间修改列表引发问题
+            callbacks = list(self._callbacks)
 
-        # 设置值
-        target[parts[-1]] = value
-
-        # 保存到文件
-        if save:
-            self.save()
-
-        # 通知监听器
-        self._notify_change(key, value)
-
-    def _set_nested_key(self,
-                        config: Dict[str, Any],
-                        key: str,
-                        value: Any,
-                        separator: str = '.') -> None:
-        """设置嵌套键的值"""
-        parts = key.split(separator)
-        target = config
-
-        for part in parts[:-1]:
-            if part not in target:
-                target[part] = {}
-            target = target[part]
-
-        target[parts[-1]] = value
-
-    def _merge_configs(self, base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
-        """递归合并配置"""
-        for key, value in override.items():
-            if key in base and isinstance(base[key], dict) and isinstance(value, dict):
-                self._merge_configs(base[key], value)
-            else:
-                base[key] = value
-
-        return base
-
-    def add_change_listener(self, listener: Callable[[str, Any], None]) -> None:
-        """添加配置变更监听器"""
-        if listener not in self._change_listeners:
-            self._change_listeners.append(listener)
-
-    def remove_change_listener(self, listener: Callable[[str, Any], None]) -> None:
-        """移除配置变更监听器"""
-        if listener in self._change_listeners:
-            self._change_listeners.remove(listener)
-
-    def _notify_change(self, key: str, value: Any) -> None:
-        """通知单个配置变更"""
-        for listener in self._change_listeners:
+        # 在锁外执行回调，避免死锁
+        for callback in callbacks:
             try:
-                listener(key, value)
+                callback(config)
             except Exception as e:
-                logger.error(f"Error in plugin config change listener: {e}")
+                logger.error(f"执行配置变化回调时出错: {e}")
 
-    def _notify_changes(self, old_config: Dict[str, Any], new_config: Dict[str, Any]) -> None:
-        """通知所有配置变更"""
-        # 查找所有变更
-        changes = self._find_changes(old_config, new_config)
-
-        # 通知每个变更
-        for key, value in changes:
-            self._notify_change(key, value)
-
-    def _find_changes(self, old: Dict[str, Any], new: Dict[str, Any], prefix: str = "") -> List[tuple]:
-        """查找配置变更"""
-        changes = []
-
-        # 查找所有键
-        all_keys = set(old.keys()) | set(new.keys())
-
-        for key in all_keys:
-            full_key = f"{prefix}.{key}" if prefix else key
-
-            # 键在新配置中不存在
-            if key not in new:
-                changes.append((full_key, None))
-                continue
-
-            # 键在旧配置中不存在
-            if key not in old:
-                changes.append((full_key, new[key]))
-                continue
-
-            # 值类型不同
-            if type(old[key]) != type(new[key]):
-                changes.append((full_key, new[key]))
-                continue
-
-            # 递归检查嵌套字典
-            if isinstance(old[key], dict) and isinstance(new[key], dict):
-                nested_changes = self._find_changes(old[key], new[key], full_key)
-                changes.extend(nested_changes)
-            # 比较其他值
-            elif old[key] != new[key]:
-                changes.append((full_key, new[key]))
-
-        return changes
-
-    def start_watching(self, interval: int = 5) -> None:
+    def update_from_dict(self, config_dict: Dict[str, Any]) -> None:
         """
-        开始监视配置文件变化
+        从字典更新配置属性（子类应重写此方法）
 
         Args:
-            interval: 检查间隔(秒)
+            config_dict: 配置字典
         """
-        if self._watch_thread and self._watch_thread.is_alive():
-            return
+        pass
 
-        self._watch_stop_event.clear()
-        self._watch_thread = threading.Thread(
-            target=self._watch_config_file,
-            args=(interval,),
-            daemon=True
-        )
-        self._watch_thread.start()
-        logger.info(f"Started watching config file {self.config_path}")
 
-    def stop_watching(self) -> None:
-        """停止监视配置文件变化"""
-        if self._watch_thread and self._watch_thread.is_alive():
-            self._watch_stop_event.set()
-            self._watch_thread.join(timeout=1.0)
-            logger.info("Stopped watching config file")
+@dataclass
+class TypedFileSourcePluginConfig(FileSourcePluginConfig):
+    """强类型的插件配置示例基类"""
+    plugin_name: str
+    config_dir: Optional[str] = None
 
-    def _watch_config_file(self, interval: int) -> None:
-        """配置文件监视线程"""
-        last_mtime = 0
+    def __post_init__(self):
+        super().__init__(self.plugin_name, self.config_dir)
 
-        while not self._watch_stop_event.is_set():
-            try:
-                # 检查文件是否存在
-                if self.config_path.exists():
-                    mtime = os.path.getmtime(self.config_path)
+    def update_from_dict(self, config_dict: Dict[str, Any]) -> None:
+        """
+        从字典更新配置属性
 
-                    # 检查是否已修改
-                    if mtime > last_mtime:
-                        logger.info(f"Config file {self.config_path} changed, reloading")
-                        self.load()
-                        last_mtime = mtime
-            except Exception as e:
-                logger.error(f"Error watching config file: {e}")
-
-            # 等待下一次检查
-            self._watch_stop_event.wait(interval)
-            
+        Args:
+            config_dict: 配置字典
+        """
+        with self._lock:
+            for key, value in config_dict.items():
+                if hasattr(self, key):
+                    setattr(self, key, value)

@@ -1,11 +1,13 @@
 import uuid
 import time
 from enum import Enum
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, asdict
 from typing import Any, Dict, List, Optional, Union
+from fastapi import Request
+from fastapi.routing import APIRoute
 
 from tmatrix.components.logging import init_logger
-logger = init_logger("runtime/context")
+logger = init_logger("runtime/core")
 
 
 class RequestState(str, Enum):
@@ -49,7 +51,7 @@ class RequestContext:
 
     # 模型信息
     model_name: Optional[str] = None
-    model_parameters: Dict[str, Any] = field(default_factory=dict)
+    sampling_parameters: Dict[str, Any] = field(default_factory=dict)
     is_streaming: bool = False
 
     # 路由信息
@@ -63,6 +65,7 @@ class RequestContext:
     cache_metadata: Dict[str, Any] = field(default_factory=dict)
 
     # 响应信息
+    status_code: Any = field(default_factory=str)
     response_started: bool = False
     response_headers: Dict[str, str] = field(default_factory=dict)
     response_chunks: List[bytes] = field(default_factory=list)
@@ -78,6 +81,10 @@ class RequestContext:
     error: Optional[Exception] = None
     error_message: Optional[str] = None
     stack_trace: Optional[str] = None
+
+    # 维护全局APP State实例
+    app_state: Optional[Dict[str, Any]] = None
+    routes: List[APIRoute] = field(default_factory=list)
 
     # 扩展数据 - 供插件使用的任意数据存储
     extensions: Dict[str, Any] = field(default_factory=dict)
@@ -201,6 +208,83 @@ class RequestContext:
         """
         return key in self.extensions
 
+    @classmethod
+    async def from_request(cls, request: "Request") -> "RequestContext":
+        """
+        从 FastAPI 请求创建一个请求上下文
+
+        Args:
+            request: FastAPI 请求对象
+
+        Returns:
+            初始化好的请求上下文
+        """
+        # 创建基础 context 实例
+        context = cls(
+            request_id=str(uuid.uuid4()),
+            creation_time=time.time(),
+            last_updated_time=time.time(),
+            state=RequestState.INITIALIZED,
+
+            # 请求元数据
+            headers={k: v for k, v in request.headers.items()},
+            endpoint=str(request.url.path),
+            http_method=request.method,
+            query_params=dict(request.query_params),
+            client_info={
+                "host": request.client.host if request.client else None,
+                "port": request.client.port if request.client else None,
+                "user_agent": request.headers.get("user-agent"),
+                "forwarded_for": request.headers.get("x-forwarded-for"),
+                "request_id": request.headers.get("x-request-id"),
+            },
+        )
+
+        # 保存对应用状态的引用
+        context.app_state = request.app.state
+        context.routes = request.app.routes
+
+        # 处理请求体 (如果有)
+        context = await cls._parse_request_body(request, context)
+
+        return context
+
+    @classmethod
+    async def _parse_request_body(cls, request: "Request", context: "RequestContext") -> "RequestContext":
+        # 处理请求体 (如果有)
+        try:
+            # 对于较小的请求体，直接读取
+            raw_body = await request.body()
+            context.raw_body = raw_body
+
+            # 尝试解析为JSON (如果适用)
+            if request.headers.get("content-type", "").lower().startswith("application/json"):
+                try:
+                    body_json = await request.json()
+                    context.parsed_body = body_json
+
+                    # 提取常见的模型参数 (例如 model_name, streaming 等)
+                    if isinstance(body_json, dict):
+                        if "model" in body_json:
+                            context.model_name = body_json["model"]
+
+                        # 可能的流式响应标志
+                        if "stream" in body_json:
+                            context.is_streaming = bool(body_json["stream"])
+
+                        # 模型参数收集
+                        for param in ["temperature", "top_p", "max_tokens", "n", "presence_penalty",
+                                      "frequency_penalty", "top_k", "seed"]:
+                            if param in body_json:
+                                context.sampling_parameters[param] = body_json[param]
+                except ValueError:
+                    # 不是有效的JSON，保持默认值
+                    pass
+        except Exception as e:
+            logger.warning(f"Error reading request body: {str(e)}")
+
+        return context
+
     def to_dict(self) -> Dict[str, Any]:
         """
         将上下文转换为字典，主要用于日志记录和调试
@@ -208,17 +292,7 @@ class RequestContext:
         Returns:
             上下文的字典表示
         """
-        return {
-            "request_id": self.request_id,
-            "state": self.state,
-            "model_name": self.model_name,
-            "backend_url": self.backend_url,
-            "cache_hit": self.cache_hit,
-            "is_streaming": self.is_streaming,
-            "error_message": self.error_message,
-            "processing_time": self.get_processing_time(),
-            "stage_timings": self.stage_timings
-        }
+        return asdict(self)
 
     def __str__(self) -> str:
         """字符串表示，用于日志和调试"""

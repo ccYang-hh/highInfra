@@ -1,0 +1,28 @@
+{
+  "app_name": "tMatrix测试系统",
+  "app_version": "0.0.1",
+  "app_description": "推理系统测试配置",
+  "host": "0.0.0.0",
+  "port": 8080,
+  "log_level": "debug",
+  "service_discovery": "static",
+  "worker_threads": 4,
+  "max_batch_size": 16,
+  "plugin_registry": {
+    "plugins": {
+      "vllm_router": {
+        "enabled": true,
+        "module": "tmatrix.runtime.plugins.routers.vllm_router",
+        "priority": 100
+      },
+      "request_stream_processor": {
+        "enabled": true,
+        "module": "tmatrix.runtime.plugins.request_processor",
+        "priority": 100
+      }
+    },
+    "discovery_paths": [],
+    "auto_discovery": false
+  },
+  "pipelines": []
+}

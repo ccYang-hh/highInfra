@@ -54,36 +54,29 @@ RUNTIME_SCHEMA = {
 
         # 管道配置
         "pipelines": {
-            "type": "object",
-            "additionalProperties": {
+            "type": "array",
+            "items": {
                 "type": "object",
                 "properties": {
-                    "max_parallelism": {"type": "integer", "minimum": 1},
-                    "stages": {
+                    "pipeline_name": {"type": "string"},
+                    "plugins": {
                         "type": "array",
                         "items": {"type": "string"}
                     },
-                    "connections": {
+                    "routes": {
                         "type": "array",
                         "items": {
                             "type": "object",
                             "properties": {
-                                "from": {"type": "string"},
-                                "to": {"type": "string"}
+                                "path": {"type": "string"},
+                                "method": {"type": "string"},
                             },
-                            "required": ["from", "to"]
+                            "required": ["path", "method"],
                         }
                     },
-                    "entry_points": {
-                        "type": "array",
-                        "items": {"type": "string"}
-                    },
-                    "exit_points": {
-                        "type": "array",
-                        "items": {"type": "string"}
-                    }
                 }
-            }
+            },
+            "required": ["plugin_name", "plugins", "routes"]
         }
     },
     "required": ["host", "port"]

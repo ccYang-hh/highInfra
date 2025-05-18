@@ -2,11 +2,11 @@ import os
 import yaml
 
 DEFAULT_CONFIG = {
-    'log_level': 'INFO',
+    'log_level': 'DEBUG',
     'log_dir': './logs',
     'console': {
         'enable': True,
-        'level': 'INFO',
+        'level': 'DEBUG',
         'color': True
     },
     'file': {

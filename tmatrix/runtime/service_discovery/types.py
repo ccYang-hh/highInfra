@@ -33,13 +33,13 @@ class EndpointStatus(enum.Enum):
 class Endpoint:
     """端点信息"""
     endpoint_id: str               # endpoint标识
-    endpoint_type: EndpointType    # 端点服务类型
     address: str                   # 连接地址
     model_name: str                # 当前主服务模型
-    transport_type: TransportType  # 传输类型
     added_timestamp: float         # 添加时间
     priority: int = 0              # 优先级，可用于负载均衡
-    status: EndpointStatus = EndpointStatus.UNHEALTHY       # 端点健康状态
+    transport_type: TransportType = TransportType.HTTP  # 传输类型
+    status: EndpointStatus = EndpointStatus.UNHEALTHY   # 端点健康状态
+    endpoint_type: EndpointType = EndpointType.COMPLETION   # 端点服务类型
     metadata: Dict[str, Any] = field(default_factory=dict)  # 元数据
 
 

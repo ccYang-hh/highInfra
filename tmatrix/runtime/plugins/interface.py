@@ -1,9 +1,9 @@
 from fastapi import APIRouter
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional, Set, Callable, Type
+from typing import Any, Dict, List, Optional, Set, Callable, Type, TypeVar, Generic
 
 from tmatrix.components.logging import init_logger
-from tmatrix.runtime.plugins import PluginConfig
+from tmatrix.runtime.plugins import IPluginConfig, PluginConfig, FileSourcePluginConfig
 from tmatrix.runtime.pipeline.stages import PipelineStage
 from tmatrix.runtime.pipeline.hooks import PipelineHook, StageHook
 from tmatrix.runtime.pipeline.pipeline import Pipeline
@@ -11,15 +11,24 @@ from tmatrix.runtime.pipeline.pipeline import Pipeline
 logger = init_logger("runtime/plugins")
 
 
-class Plugin(ABC):
+# 定义配置类型变量，用于泛型
+T = TypeVar('T', bound='IPluginConfig')
+
+
+class Plugin(Generic[T], ABC):
     """
     插件接口
 
     插件是系统扩展的主要机制，可以提供新的功能或修改现有功能
     插件可以注册管道阶段、钩子、API路由等，并管理自己的配置
-    """
 
-    @abstractmethod
+    限制:
+        1.要求所有Plugin必须包含name、version字段
+    """
+    def __init__(self):
+        self._initialized = False
+        self.config: Optional[T] = None
+
     def get_name(self) -> str:
         """
         获取插件名称
@@ -29,9 +38,18 @@ class Plugin(ABC):
         Returns:
             插件名称
         """
-        pass
+        if self._initialized and self.config and hasattr(self.config, "plugin_name"):
+            return self.config.plugin_name
+        return self._default_plugin_name()
 
     @abstractmethod
+    def _default_plugin_name(self) -> str:
+        return ""
+
+    @abstractmethod
+    def _default_version(self) -> str:
+        return ""
+
     def get_version(self) -> str:
         """
         获取插件版本
@@ -39,7 +57,9 @@ class Plugin(ABC):
         Returns:
             插件版本
         """
-        pass
+        if self._initialized and self.config and hasattr(self.config, "version"):
+            return self.config.version
+        return self._default_version()
 
     def get_description(self) -> str:
         """
@@ -48,66 +68,137 @@ class Plugin(ABC):
         Returns:
             插件描述
         """
+        if self._initialized and self.config and hasattr(self.config, "description"):
+            return self.config.description
         return "No description provided"
 
-    @abstractmethod
-    async def initialize(self, config: Dict[str, Any]) -> None:
+    async def initialize(self, config: Optional[T] = None, config_dir: Optional[str] = None) -> None:
         """
         初始化插件
 
         在系统启动时调用，可以执行资源分配、连接建立等操作
 
         Args:
-            config: 插件配置
+            config: 插件配置 (可为None，此时插件会创建默认配置)
+            config_dir: 配置目录 (仅在config为None且使用文件配置时有效)
+        """
+        if config is None:
+            config = self.create_config(config_dir)
+
+        self.config = config
+        self._initialized = True
+
+        # 子类特定的初始化逻辑
+        await self._on_initialize()
+
+    @abstractmethod
+    async def _on_initialize(self) -> None:
+        """
+        插件特定的初始化逻辑（由子类实现）
         """
         pass
 
-    @abstractmethod
     async def shutdown(self) -> None:
         """
         关闭插件
 
         在系统关闭时调用，应该释放所有资源
         """
+        if self._initialized:
+            # 子类特定的关闭逻辑
+            await self._on_shutdown()
+
+        self._initialized = False
+        self.config = None
+
+    @abstractmethod
+    async def _on_shutdown(self) -> None:
+        """
+        插件特定的关闭逻辑（由子类实现）
+        """
         pass
 
-    def get_config_class(self) -> Optional[Type[PluginConfig]]:
+    def get_config_class(self) -> Optional[Type[T]]:
         """
         获取插件配置类
 
-        返回此插件使用的配置类，如果插件有自定义配置需求
+        每个插件子类必须实现此方法，返回其使用的强类型配置类
 
         Returns:
-            配置类或None
+            配置类
         """
         return None
 
-    def create_config(self, config_dir: Optional[str] = None) -> Optional[PluginConfig]:
+    def create_config(self, config_dir: Optional[str] = None) -> T:
         """
         创建插件配置实例
 
+        根据配置类型创建相应的配置实例
+
         Args:
-            config_dir: 配置目录
+            config_dir: 配置目录 (仅对使用文件配置的插件有效)
 
         Returns:
-            插件配置实例或None
+            插件配置实例
         """
         config_class = self.get_config_class()
-        if config_class:
-            return config_class(self.get_name(), config_dir)
-        return None
 
-    async def update_config(self, config: Dict[str, Any]) -> None:
+        # 简单配置的创建
+        if issubclass(config_class, PluginConfig):
+            # 简单配置只需要插件名称
+            config = config_class(self.get_name())
+            return config
+
+        # 文件配置的创建
+        elif issubclass(config_class, FileSourcePluginConfig):
+            # 文件配置需要插件名称和配置目录
+            config_dir_to_use = config_dir or "./configs"
+            config = config_class(self.get_name(), config_dir_to_use)
+            return config
+
+        # 其他类型配置的创建 (防止未来可能出现的其他配置类型)
+        else:
+            # 尝试仅用插件名称创建
+            try:
+                config = config_class(self.get_name())
+                return config
+            except TypeError:
+                # 如果失败，提供更明确的错误信息
+                raise TypeError(f"无法创建配置类型 {config_class.__name__}，请检查构造函数参数要求")
+
+    async def update_config(self, config_dict: Dict[str, Any]) -> None:
         """
         更新插件配置
 
-        插件可以重写此方法以支持热重载配置
+        Args:
+            config_dict: 新配置字典
+        """
+        if not self._initialized or not self.config:
+            raise RuntimeError("插件未初始化，无法更新配置")
+
+        # 更新配置属性，根据具体配置类型处理
+        if isinstance(self.config, PluginConfig):
+            # 直接更新简单配置的属性
+            for key, value in config_dict.items():
+                if hasattr(self.config, key):
+                    setattr(self.config, key, value)
+        elif isinstance(self.config, FileSourcePluginConfig) and hasattr(self.config, "update_from_dict"):
+            # 使用文件配置的update_from_dict方法
+            self.config.update_from_dict(config_dict)
+
+        # 子类特定的配置更新逻辑
+        await self._on_config_update(config_dict)
+
+    async def _on_config_update(self, config_dict: Dict[str, Any]) -> None:
+        """
+        插件特定的配置更新逻辑（可由子类重写）
 
         Args:
-            config: 新配置
+            config_dict: 更新的配置字典
         """
         pass
 
+    @abstractmethod
     def get_pipeline_stages(self) -> List[PipelineStage]:
         """
         获取插件提供的管道阶段

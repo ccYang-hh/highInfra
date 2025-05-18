@@ -2,9 +2,9 @@ from typing import Any, Dict, List, Union
 from jsonschema import validate, ValidationError
 
 from tmatrix.components.logging import init_logger
-from .errors import *
+from tmatrix.components.errors import Errors
+from tmatrix.components.errors.modules import ConfigErrors
 from .schema import get_schema
-from .config import RuntimeConfig
 
 logger = init_logger("runtime/config")
 
@@ -30,13 +30,13 @@ class ConfigValidator:
         """
         self.schemas[name] = schema
 
-    def validate_config(self, config: Union[Dict[str, Any], RuntimeConfig],
+    def validate_config(self, config: Union[Dict[str, Any]],
                         schema_name: str = "runtime") -> List[str]:
         """
         验证配置
 
         Args:
-            config: 要验证的配置 (字典或 RuntimeConfig 对象)
+            config: 要验证的配置
             schema_name: 使用的模式名称
 
         Returns:
@@ -47,17 +47,11 @@ class ConfigValidator:
 
         schema = self.schemas[schema_name]
 
-        # 如果是 dataclass 对象，先转为字典
-        if isinstance(config, RuntimeConfig):
-            config_dict = config.to_dict()
-        else:
-            config_dict = config
-
         try:
-            validate(instance=config_dict, schema=schema)
+            validate(instance=config, schema=schema)
             return []
         except ValidationError as e:
             # 格式化验证错误
             path = ".".join(str(p) for p in e.path)
             logger.error(f"配置验证错误 {path}: {e.message}")
-            raise_error(SCHEMA_VALIDATE_ERROR, path=path)
+            Errors.raise_error(ConfigErrors.SCHEMA_NOT_DEFINITION)

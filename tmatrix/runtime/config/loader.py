@@ -6,14 +6,16 @@ from dataclasses import asdict
 from typing import Any, Dict, List, Optional, Union
 
 from tmatrix.components.logging import init_logger
-from .config import RuntimeConfig
 from .validator import ConfigValidator
 
 logger = init_logger("runtime/config")
 
 
 class ConfigLoader:
-    """配置加载器，负责从文件和环境变量加载配置"""
+    """
+    TODO, 暂不使用，后续支持增强功能
+    配置加载器，负责从文件和环境变量加载配置
+    """
 
     def __init__(self,
                  env_prefix: str = "LLM_",
@@ -213,7 +215,7 @@ class ConfigLoader:
     def get_default_config() -> Dict[str, Any]:
         """获取默认配置"""
         # 返回RuntimeConfig的默认值作为字典
-        return asdict(RuntimeConfig())
+        return dict()
 
     @staticmethod
     def _merge_configs(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:

@@ -2,8 +2,7 @@ from abc import ABC
 from typing import Optional
 
 from tmatrix.components.logging import init_logger
-from ..context import RequestContext
-from .stages import PipelineStage
+from tmatrix.runtime.core.context import RequestContext
 
 logger = init_logger("runtime/pipeline")
 
@@ -30,7 +29,7 @@ class StageHook(ABC):
         """获取钩子名称"""
         return self._name
 
-    async def before_stage(self, stage: PipelineStage, context: RequestContext) -> None:
+    async def before_stage(self, stage: "PipelineStage", context: RequestContext) -> None:
         """
         在阶段执行前调用
 
@@ -40,7 +39,7 @@ class StageHook(ABC):
         """
         pass
 
-    async def after_stage(self, stage: PipelineStage, context: RequestContext) -> None:
+    async def after_stage(self, stage: "PipelineStage", context: RequestContext) -> None:
         """
         在阶段执行后调用
 
@@ -50,7 +49,7 @@ class StageHook(ABC):
         """
         pass
 
-    async def on_error(self, stage: PipelineStage, context: RequestContext, error: Exception) -> None:
+    async def on_error(self, stage: "PipelineStage", context: RequestContext, error: Exception) -> None:
         """
         在阶段执行出错时调用
 
