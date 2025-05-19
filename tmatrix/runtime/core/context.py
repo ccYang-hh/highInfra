@@ -76,6 +76,7 @@ class RequestContext:
     stage_sequence: List[str] = field(default_factory=list)
     processing_start_time: Optional[float] = None
     processing_end_time: Optional[float] = None
+    metrics: Optional[Dict[str, Any]] = None
 
     # 错误处理
     error: Optional[Exception] = None

@@ -1,13 +1,16 @@
-import time
-import uuid
 import json
 import threading
+import time
+import uuid
 from typing import List, Optional, Dict
 
-from .types import TransportType, Endpoint, EndpointType
-from .base import CachedServiceDiscovery
+import etcd3
+import etcd3.events
 
 from tmatrix.components.logging import init_logger
+from .base import CachedServiceDiscovery
+from .types import TransportType, Endpoint
+
 logger = init_logger(__name__)
 
 
@@ -16,7 +19,6 @@ class EtcdServiceDiscovery(CachedServiceDiscovery):
     def __init__(self, etcd_host: str = "localhost", etcd_port: int = 2379,
                  prefix: str = "tmatrix.endpoints", cache_ttl: float = 1.0):
         super().__init__(cache_ttl)
-        import etcd3
         self.client = etcd3.client(host=etcd_host, port=etcd_port)
         self.prefix = prefix.rstrip("/")
         self._watch_thread = threading.Thread(target=self._watch_changes, daemon=True)
@@ -33,7 +35,7 @@ class EtcdServiceDiscovery(CachedServiceDiscovery):
                     data = json.loads(value.decode())
                     ep = Endpoint(
                         endpoint_id=data.get("endpoint_id", str(uuid.uuid4())),
-                        endpoint_type=EndpointType.CHAT_COMPLETION,
+                        endpoint_type=data.get("endpoint_type", []),
                         address=data.get("address", ""),
                         model_name=data.get("model_name", "default"),
                         transport_type=TransportType(data.get("transport_type", "http")),
@@ -50,7 +52,6 @@ class EtcdServiceDiscovery(CachedServiceDiscovery):
             return self._endpoints
 
     def _watch_changes(self):
-        import etcd3
         """监视etcd变化"""
         while self._running:
             try:
@@ -74,9 +75,10 @@ class EtcdServiceDiscovery(CachedServiceDiscovery):
     def register_endpoint(self, endpoint: Endpoint, ttl: Optional[int] = None, *args, **kwargs):
         """注册一个端点到 etcd，并可选使用 lease 自动过期"""
         key = f"{self.prefix}/{endpoint.endpoint_id}"
+        endpoint_types = [endpoint_type.value for endpoint_type in endpoint.endpoint_type]
         data = {
             "endpoint_id": endpoint.endpoint_id,
-            "endpoint_type": endpoint.endpoint_type,
+            "endpoint_type": endpoint_types,
             "address": endpoint.address,
             "model_name": endpoint.model_name,
             "transport_type": endpoint.transport_type.value,

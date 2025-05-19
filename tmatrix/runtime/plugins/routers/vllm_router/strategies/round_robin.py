@@ -2,7 +2,7 @@ from typing import Dict, List
 
 from tmatrix.runtime.service_discovery import Endpoint
 from tmatrix.runtime.core import RequestContext
-from .base import RouteStrategy
+from .base import EngineStats, RequestStats, RouteStrategy
 
 
 class RoundRobinStrategy(RouteStrategy):

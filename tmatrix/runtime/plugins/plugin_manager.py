@@ -139,21 +139,14 @@ class PluginManager:
         if not plugin_cls:
             return
 
+        # 检查是否提供正确插件名称
+        if plugin_cls.get_name() != plugin_name:
+            error_message = f"插件名称不匹配: 预期 '{plugin_name}', 实际为 '{plugin_cls.get_name()}'"
+            logger.error(error_message)
+            raise RuntimeError(error_message)
+
         # 创建插件实例
         plugin = plugin_cls()
-        plugin_config = plugin.create_config(plugin_info.config_path)
-        await plugin.initialize(plugin_config, plugin_info.config_path)
-
-        # 检查是否提供正确的插件名称
-        if plugin.get_name() != plugin_name:
-            logger.warning(
-                f"插件名称不匹配: 预期 '{plugin_name}', 实际为 '{plugin.get_name()}'"
-            )
-
-        # 创建插件配置
-        config_dir = None
-        if plugin_info.config_path:
-            config_dir = str(Path(plugin_info.config_path).parent)
 
         # 初始化状态
         self._plugin_states[plugin_name] = PluginState.LOADED
@@ -168,7 +161,7 @@ class PluginManager:
 
         # 初始化插件
         try:
-            await plugin.initialize(config_dir=config_dir)
+            await plugin.initialize(config_dir=plugin_info.config_path)
             self._plugin_states[plugin_name] = PluginState.INITIALIZED
             self._plugin_configs[plugin_name] = plugin.config
 

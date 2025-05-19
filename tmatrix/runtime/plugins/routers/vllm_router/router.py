@@ -4,7 +4,7 @@ from typing import Any, Dict, List, Optional, Type, TypeVar
 from fastapi import APIRouter
 
 from tmatrix.components.logging import init_logger
-from tmatrix.runtime.service_discovery import Endpoint
+from tmatrix.runtime.service_discovery import Endpoint, EndpointType, EndpointStatus
 from tmatrix.runtime.pipeline import StageHook, PipelineHook, PipelineStage
 from tmatrix.runtime.plugins import Plugin, IPluginConfig
 from tmatrix.runtime.core import RequestContext, RequestState
@@ -120,15 +120,26 @@ class RouterStage(PipelineStage):
     @staticmethod
     def _get_endpoints_for_model(model_name: str, context: RequestContext) -> List[Endpoint]:
         """获取支持指定模型的端点列表"""
-        endpoints = []
-
-        # 尝试从app_state获取端点信息
-        if context.app_state and "endpoints" in context.app_state:
-            endpoints_data = context.app_state["endpoints"]
-            for info in endpoints_data:
-                if info.get("model_name") == model_name:
-                    endpoints_data.append(info)
-
+        # endpoints = []
+        #
+        # # 尝试从app_state获取端点信息
+        # if context.app_state and "endpoints" in context.app_state:
+        #     endpoints_data = context.app_state["endpoints"]
+        #     for info in endpoints_data:
+        #         if info.get("model_name") == model_name:
+        #             endpoints_data.append(info)
+        #
+        # return endpoints
+        endpoints: List[Endpoint] = [
+            Endpoint(
+                endpoint_id="001",
+                address="70.182.43.96:30000",
+                model_name="qwen",
+                added_timestamp=time.time(),
+                status=EndpointStatus.HEALTHY,
+                endpoint_type=[EndpointType.COMPLETION]
+            )
+        ]
         return endpoints
 
     @staticmethod
@@ -361,6 +372,8 @@ class RoutingMetricsHook(StageHook):
 
 class RouterPlugin(Plugin[RouterConfig]):
     """路由插件，提供模型解析和后端路由功能"""
+    plugin_name: str = "vllm_router"
+    plugin_version: str = "0.0.1"
 
     def __init__(self):
         super().__init__()
@@ -368,12 +381,6 @@ class RouterPlugin(Plugin[RouterConfig]):
         self.routing_stage = BackendRoutingStage()
         self.metrics_hook = RoutingMetricsHook()
         self.router_stage: Optional[RouterStage] = None
-
-    def _default_plugin_name(self) -> str:
-        return "vllm_router"
-
-    def _default_version(self) -> str:
-        return "0.0.1"
 
     def get_config_class(self) -> Optional[Type[T]]:
         return RouterConfig

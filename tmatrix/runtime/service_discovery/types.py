@@ -1,31 +1,32 @@
-import enum
-from typing import Dict, Any
+from enum import Enum, auto
+import time
+from typing import Dict, Any, List
 from dataclasses import dataclass, field
 
 
-class ServiceDiscoveryType(enum.Enum):
+class ServiceDiscoveryType(Enum):
     """支持实现服务发现的类型枚举"""
     STATIC = "static"
     K8S = "k8s"
     ETCD = "etcd"
 
 
-class TransportType(enum.Enum):
+class TransportType(Enum):
     """传输类型"""
     TCP = "tcp"
     HTTP = "http"
     HTTPS = "https"
 
 
-class EndpointType(enum.Enum):
+class EndpointType(Enum):
     """端点服务类型，基于OpenAI"""
-    COMPLETION = 0
-    CHAT_COMPLETION = 1
+    COMPLETION = auto()
+    CHAT_COMPLETION = auto()
 
 
-class EndpointStatus(enum.Enum):
-    HEALTHY = 0
-    UNHEALTHY = 1
+class EndpointStatus(Enum):
+    HEALTHY = auto()
+    UNHEALTHY = auto()
 
 
 # 高性能端点信息，保持轻量
@@ -35,15 +36,15 @@ class Endpoint:
     endpoint_id: str               # endpoint标识
     address: str                   # 连接地址
     model_name: str                # 当前主服务模型
-    added_timestamp: float         # 添加时间
-    priority: int = 0              # 优先级，可用于负载均衡
+    priority: int = 0                 # 优先级，可用于负载均衡
     transport_type: TransportType = TransportType.HTTP  # 传输类型
     status: EndpointStatus = EndpointStatus.UNHEALTHY   # 端点健康状态
-    endpoint_type: EndpointType = EndpointType.COMPLETION   # 端点服务类型
+    endpoint_type: List[EndpointType] = field(default_factory=list)   # 端点服务类型
+    added_timestamp: float = field(default_factory=lambda: time.time())  # 添加时间
     metadata: Dict[str, Any] = field(default_factory=dict)  # 元数据
 
 
-class PodServiceLabel(enum.Enum):
+class PodServiceLabel(Enum):
     """POD资源标签，用于服务发现"""
     MODEL_NAME = "tmatrix.service.model"
     SERVICE_TRANSPORT_TYPE = "tmatrix.service.transport"

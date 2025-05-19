@@ -122,16 +122,12 @@ class StreamProcessorStage(PipelineStage):
 
 class StreamProcessorPlugin(Plugin):
     """处理流式请求并生成响应的插件"""
+    plugin_name: str = "request_stream_processor"
+    plugin_version: str = "0.0.1"
 
     def __init__(self):
         super().__init__()
         self.stream_processor_stage: Optional[PipelineStage] = StreamProcessorStage("stream_processor")
-
-    def _default_plugin_name(self) -> str:
-        return "request_stream_processor"
-
-    def _default_version(self) -> str:
-        return "0.0.1"
 
     async def _on_initialize(self) -> None:
         """初始化插件，创建HTTP客户端"""

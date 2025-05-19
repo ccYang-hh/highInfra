@@ -10,7 +10,6 @@ from tmatrix.runtime.pipeline.pipeline import Pipeline
 
 logger = init_logger("runtime/plugins")
 
-
 # 定义配置类型变量，用于泛型
 T = TypeVar('T', bound='IPluginConfig')
 
@@ -25,11 +24,19 @@ class Plugin(Generic[T], ABC):
     限制:
         1.要求所有Plugin必须包含name、version字段
     """
+    plugin_name: str
+    plugin_version: str
+    plugin_description: Optional[str]
+
     def __init__(self):
         self._initialized = False
         self.config: Optional[T] = None
+        if (getattr(self.__class__, 'plugin_name', None) in (None, '') or
+                getattr(self.__class__, 'plugin_version', None) in (None, '')):
+            raise ValueError("plugin_name 和 plugin_version 不能是空值")
 
-    def get_name(self) -> str:
+    @classmethod
+    def get_name(cls) -> str:
         """
         获取插件名称
 
@@ -38,39 +45,27 @@ class Plugin(Generic[T], ABC):
         Returns:
             插件名称
         """
-        if self._initialized and self.config and hasattr(self.config, "plugin_name"):
-            return self.config.plugin_name
-        return self._default_plugin_name()
+        return cls.plugin_name
 
-    @abstractmethod
-    def _default_plugin_name(self) -> str:
-        return ""
-
-    @abstractmethod
-    def _default_version(self) -> str:
-        return ""
-
-    def get_version(self) -> str:
+    @classmethod
+    def get_version(cls) -> str:
         """
         获取插件版本
 
         Returns:
             插件版本
         """
-        if self._initialized and self.config and hasattr(self.config, "version"):
-            return self.config.version
-        return self._default_version()
+        return cls.plugin_version
 
-    def get_description(self) -> str:
+    @classmethod
+    def get_description(cls) -> str:
         """
         获取插件描述
 
         Returns:
             插件描述
         """
-        if self._initialized and self.config and hasattr(self.config, "description"):
-            return self.config.description
-        return "No description provided"
+        return cls.plugin_description
 
     async def initialize(self, config: Optional[T] = None, config_dir: Optional[str] = None) -> None:
         """
@@ -129,7 +124,7 @@ class Plugin(Generic[T], ABC):
         """
         return None
 
-    def create_config(self, config_dir: Optional[str] = None) -> T:
+    def create_config(self, config_dir: Optional[str] = None) -> Optional[T]:
         """
         创建插件配置实例
 
@@ -143,28 +138,25 @@ class Plugin(Generic[T], ABC):
         """
         config_class = self.get_config_class()
 
+        # 边缘异常场景处理
+        if config_class is None:
+            return None
+
         # 简单配置的创建
         if issubclass(config_class, PluginConfig):
-            # 简单配置只需要插件名称
-            config = config_class(self.get_name())
+            config = config_class(self.__class__.get_name())
             return config
 
         # 文件配置的创建
         elif issubclass(config_class, FileSourcePluginConfig):
             # 文件配置需要插件名称和配置目录
             config_dir_to_use = config_dir or "./configs"
-            config = config_class(self.get_name(), config_dir_to_use)
+            config = config_class(self.__class__.get_name(), config_dir=config_dir_to_use)
             return config
 
         # 其他类型配置的创建 (防止未来可能出现的其他配置类型)
         else:
-            # 尝试仅用插件名称创建
-            try:
-                config = config_class(self.get_name())
-                return config
-            except TypeError:
-                # 如果失败，提供更明确的错误信息
-                raise TypeError(f"无法创建配置类型 {config_class.__name__}，请检查构造函数参数要求")
+            raise TypeError(f"初始化插件配置失败")
 
     async def update_config(self, config_dict: Dict[str, Any]) -> None:
         """
