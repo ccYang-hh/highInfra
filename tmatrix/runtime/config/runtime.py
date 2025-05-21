@@ -152,6 +152,11 @@ class PipelineConfig:
             routes=routes
         )
 
+@dataclass
+class ETCDConfig:
+    host: str = "localhost"
+    port: int = 2379
+
 
 @dataclass
 class RuntimeConfig:
@@ -178,6 +183,9 @@ class RuntimeConfig:
 
     # 管道配置
     pipelines: List[PipelineConfig] = field(default_factory=list[PipelineConfig])
+
+    # ETCD配置
+    etcd: Optional[ETCDConfig] = None
 
     # 性能配置
     worker_threads: int = 8
@@ -222,6 +230,12 @@ class RuntimeConfig:
         pipelines_data = data.get("pipelines", [])
         pipelines = [PipelineConfig.from_dict(item) for item in pipelines_data]
         processed_data["pipelines"] = pipelines
+
+        # 处理ETCD配置
+        etcd_config = ETCDConfig()
+        etcd_config.host = data.get("etcd", {}).get("host", "localhost")
+        etcd_config.port = data.get("etcd", {}).get("port", 2379)
+        processed_data["etcd"] = etcd_config
 
         # 其他RuntimeConfig字段
         field_names = {f.name for f in fields(cls)}

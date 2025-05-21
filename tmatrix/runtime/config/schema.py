@@ -27,6 +27,14 @@ RUNTIME_SCHEMA = {
         "enable_auth": {"type": "boolean"},
         "auth_config": {"type": "object"},
 
+        "etcd_config": {
+            "type": "object",
+            "properties": {
+                "host": {"type": "string"},
+                "port": {"type": "integer", "minimum": 1, "maximum": 65535},
+            }
+        },
+
         # 插件配置
         "plugin_registry": {
             "type": "object",

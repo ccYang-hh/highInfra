@@ -65,6 +65,8 @@ class RuntimeCore:
         self.plugin_manager: Optional[PluginManager] = None
         self.pipeline_builder: Optional[PipelineBuilder] = None
 
+        self.pipelines: Dict[str, Pipeline] = {}
+
         # 运行状态
         self._is_initialized = False
         self._startup_time = None
@@ -105,6 +107,15 @@ class RuntimeCore:
         self.app.state.config_manager = self.config_manager  # type: ignore
         self.app.state.config = self.config  # type: ignore
         self.app.state.router_manager = self.router_manager  # type: ignore
+        self.app.state.pipelines = self.pipelines  # type: ignore
+        self.app.state.service_discovery = get_etcd_service_discovery(  # type: ignore
+            self.config.etcd.host, self.config.etcd.port)
+
+        # 条件判断
+        if self.plugin_manager.get_plugin("vllm_router") is not None:
+            from tmatrix.runtime.services.prefix_cache import PrefixCacheService
+            prefix_cache_service = PrefixCacheService()
+
 
         logger.info(f"{self.config.app_name} 初始化成功")
 
@@ -161,13 +172,7 @@ class RuntimeCore:
         )
 
         # 构建所有Pipeline
-        pipelines = self.pipeline_builder.build_pipelines()
-
-        # 注册到路由管理器
-        for name, pipeline in pipelines.items():
-            self.router_manager.register_pipeline_routes(pipeline)
-
-        logger.info(f"构建了 {len(pipelines)} 个Pipelines")
+        self.pipelines = self.pipeline_builder.build_pipelines()
 
     def _create_pipeline_configs(self) -> PipelineBuilderConfig:
         """
@@ -195,11 +200,20 @@ class RuntimeCore:
 
     def _setup_routes(self) -> None:
         """设置所有路由"""
-        # 从插件获取路由器
+        # 注册系统路由
+        from tmatrix.runtime.api import SYSTEM_ROUTERS
+        for module_name, routes in SYSTEM_ROUTERS.items():
+            self.router_manager.register_system_router(module_name, routes)
+
+        # 注册插件路由
         for plugin_name in self.plugin_manager.get_all_plugins().keys():
             router = self.plugin_manager.get_api_router(plugin_name)
             if router:
                 self.router_manager.register_plugin_router(plugin_name, router)
+
+        # 注册pipeline路由
+        for name, pipeline in self.pipelines.items():
+            self.router_manager.register_pipeline_routes(pipeline)
 
         # 应用所有路由到FastAPI应用
         self.router_manager.apply_to_app(self.app)
