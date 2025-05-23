@@ -6,7 +6,7 @@ from sentence_transformers import SentenceTransformer
 import faiss
 import pickle
 
-from tmatrix.components.logging import init_logger
+from tmatrix.common.logging import init_logger
 logger = init_logger(__name__)
 
 from .delta_tree import DeltaOperation, DeltaTree

@@ -2,7 +2,7 @@ from enum import Enum
 from typing import Dict
 from fastapi import APIRouter, FastAPI
 
-from tmatrix.components.logging import init_logger
+from tmatrix.common.logging import init_logger
 from tmatrix.runtime.pipeline import Pipeline
 
 from .dispatcher import RequestDispatcher

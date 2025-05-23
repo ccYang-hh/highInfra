@@ -1,9 +1,9 @@
 from typing import Any, Dict, List, Union
 from jsonschema import validate, ValidationError
 
-from tmatrix.components.logging import init_logger
-from tmatrix.components.errors import Errors
-from tmatrix.components.errors.modules import ConfigErrors
+from tmatrix.common.logging import init_logger
+from tmatrix.common.errors import Errors
+from tmatrix.common.errors.modules import ConfigErrors
 from .schema import get_schema
 
 logger = init_logger("runtime/config")

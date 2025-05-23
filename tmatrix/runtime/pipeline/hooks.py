@@ -1,7 +1,7 @@
 from abc import ABC
 from typing import Optional
 
-from tmatrix.components.logging import init_logger
+from tmatrix.common.logging import init_logger
 from tmatrix.runtime.core.context import RequestContext
 
 logger = init_logger("runtime/pipeline")

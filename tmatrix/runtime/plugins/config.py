@@ -4,7 +4,7 @@ from pathlib import Path
 from dataclasses import dataclass
 from typing import Dict, Optional, Any, Callable, List
 
-from tmatrix.components.logging import init_logger
+from tmatrix.common.logging import init_logger
 from tmatrix.runtime.config import FileConfigSource
 
 

@@ -2,11 +2,19 @@ import time
 from abc import ABC, abstractmethod
 from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Any, Dict, Set
+from typing import Any, Dict, Set, TYPE_CHECKING
 
-from tmatrix.components.logging import init_logger
-from .types import BlockStored, BlockRemoved, EventType
-logger = init_logger("events_subscriber/kv_events")
+from tmatrix.common.logging import init_logger
+logger = init_logger("metrics/kv_events")
+
+
+if TYPE_CHECKING:
+    # metrics优先于events_subscriber初始化
+    from tmatrix.runtime.components.events_subscriber import EventType, BlockStored, BlockRemoved
+
+
+def get_kv_event_stats() -> 'EventStatsBase':
+    return KVEventStats()
 
 
 class EventStatsBase(ABC):
@@ -16,12 +24,12 @@ class EventStatsBase(ABC):
     """
 
     @abstractmethod
-    def update_on_block_stored(self, event: BlockStored, instance_id: str) -> None:
+    def update_on_block_stored(self, event: "BlockStored", instance_id: str) -> None:
         """更新块存储事件统计"""
         pass
 
     @abstractmethod
-    def update_on_block_removed(self, event: BlockRemoved, instance_id: str) -> None:
+    def update_on_block_removed(self, event: "BlockRemoved", instance_id: str) -> None:
         """更新块移除事件统计"""
         pass
 
@@ -36,7 +44,7 @@ class EventStatsBase(ABC):
         pass
 
     @abstractmethod
-    def get_stats_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> Dict[str, Any]:
         """获取统计信息字典"""
         pass
 
@@ -70,8 +78,9 @@ class KVEventStats(EventStatsBase):
     last_update_time: float = field(default_factory=time.time)
     last_print_time: float = field(default_factory=time.time)
 
-    def update_on_block_stored(self, event: BlockStored, instance_id: str) -> None:
+    def update_on_block_stored(self, event: "BlockStored", instance_id: str) -> None:
         """更新块存储事件统计"""
+        from tmatrix.runtime.components.events_subscriber import EventType
         self.blocks_tracked += len(event.block_hashes)
         self.active_blocks.update(event.block_hashes)
         self.total_tokens_processed += len(event.token_ids)
@@ -81,8 +90,9 @@ class KVEventStats(EventStatsBase):
         self.event_counts[EventType.BLOCK_STORED.value] += 1
         self.last_update_time = time.time()
 
-    def update_on_block_removed(self, event: BlockRemoved, instance_id: str) -> None:
+    def update_on_block_removed(self, event: "BlockRemoved", instance_id: str) -> None:
         """更新块移除事件统计"""
+        from tmatrix.runtime.components.events_subscriber import EventType
         self.blocks_removed += len(event.block_hashes)
         self.active_blocks.difference_update(event.block_hashes)
         self.record_instance(instance_id)
@@ -92,6 +102,7 @@ class KVEventStats(EventStatsBase):
 
     def update_on_all_blocks_cleared(self, instance_id: str) -> None:
         """更新所有块清除事件统计"""
+        from tmatrix.runtime.components.events_subscriber import EventType
         self.blocks_cleared += 1
         previous_blocks = self.instance_block_counts.get(instance_id, 0)
         self.blocks_removed += previous_blocks
@@ -119,7 +130,7 @@ class KVEventStats(EventStatsBase):
             )
             self.last_print_time = now
 
-    def get_stats_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> Dict[str, Any]:
         """获取统计信息字典"""
         return {
             "blocks_tracked": self.blocks_tracked,
@@ -153,4 +164,3 @@ class KVEventStats(EventStatsBase):
         self.start_time = time.time()
         self.last_update_time = time.time()
         self.last_print_time = time.time()
-

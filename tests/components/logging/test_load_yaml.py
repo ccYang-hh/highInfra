@@ -1,5 +1,5 @@
 import os
-from tmatrix.components.logging.logger import init_logger
+from tmatrix.common.logging.logger import init_logger
 
 if __name__ == '__main__':
     os.environ['TMATRIX_LOG_CONFIG_PATH'] = './logging_config.yaml'

@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from fastapi import APIRouter
 from typing import Dict, List, Optional, Callable
 
-from tmatrix.components.logging import init_logger
+from tmatrix.common.logging import init_logger
 from tmatrix.runtime.plugins import PluginManager
 from tmatrix.runtime.config import PipelineConfig
 from .pipeline import Pipeline

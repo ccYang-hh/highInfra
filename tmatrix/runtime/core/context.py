@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional, Union
 from fastapi import Request
 from fastapi.routing import APIRoute
 
-from tmatrix.components.logging import init_logger
+from tmatrix.common.logging import init_logger
 logger = init_logger("runtime/core")
 
 

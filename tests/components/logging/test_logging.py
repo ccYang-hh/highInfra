@@ -1,4 +1,4 @@
-from tmatrix.components.logging.logger import init_logger
+from tmatrix.common.logging.logger import init_logger
 
 if __name__ == '__main__':
     logger = init_logger("normal")

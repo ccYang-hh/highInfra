@@ -1,6 +1,6 @@
 from typing import List, Optional, Callable
 
-from tmatrix.components.logging import init_logger
+from tmatrix.common.logging import init_logger
 from tmatrix.runtime.config import PipelineRoute
 from tmatrix.runtime.core.context import RequestContext, RequestState
 from .hooks import PipelineHook

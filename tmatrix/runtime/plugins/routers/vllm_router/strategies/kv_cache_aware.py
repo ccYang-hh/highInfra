@@ -3,7 +3,7 @@ import asyncio
 import threading
 from typing import Dict, List
 
-from tmatrix.components.logging import init_logger
+from tmatrix.common.logging import init_logger
 from tmatrix.runtime.service_discovery import Endpoint
 from tmatrix.runtime.core import RequestContext
 from .base import RequestStats, EngineStats, RouteStrategy

@@ -7,15 +7,35 @@ from typing import List, Optional, Dict
 import etcd3
 import etcd3.events
 
-from tmatrix.components.logging import init_logger
+from tmatrix.common.logging import init_logger
 from .base import CachedServiceDiscovery
 from .types import TransportType, Endpoint
 
 logger = init_logger(__name__)
 
 
+def get_etcd_service_discovery(etcd_host: str = "localhost", etcd_port: int = 2379,
+                               prefix: str = "tmatrix.endpoints", cache_ttl: float = 1.0) -> "EtcdServiceDiscovery":
+    return EtcdServiceDiscoverySingleton.get_instance(etcd_host, etcd_port, prefix, cache_ttl)
+
+
+class EtcdServiceDiscoverySingleton:
+    _instance: Optional["EtcdServiceDiscovery"] = None
+    _lock = threading.Lock()
+
+    @classmethod
+    def get_instance(cls, etcd_host: str = "localhost", etcd_port: int = 2379,
+                     prefix: str = "tmatrix.endpoints", cache_ttl: float = 1.0) -> "EtcdServiceDiscovery":
+        if cls._instance is None:
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = EtcdServiceDiscovery(etcd_host, etcd_port, prefix, cache_ttl)
+        return cls._instance
+
+
 class EtcdServiceDiscovery(CachedServiceDiscovery):
     """基于ETCD的服务发现, 支持注册/下线、事件实时感知与缓存"""
+
     def __init__(self, etcd_host: str = "localhost", etcd_port: int = 2379,
                  prefix: str = "tmatrix.endpoints", cache_ttl: float = 1.0):
         super().__init__(cache_ttl)
@@ -94,7 +114,7 @@ class EtcdServiceDiscovery(CachedServiceDiscovery):
         else:
             self.client.put(key, json.dumps(data))
 
-    def remove_endpoint(self, endpoint_id: str,  *args, **kwargs):
+    def remove_endpoint(self, endpoint_id: str, *args, **kwargs):
         """根据 id+模型 精确下线一个 endpoint，同时撤销 lease"""
         key = f"{self.prefix}/{endpoint_id}"
         self.client.delete(key)

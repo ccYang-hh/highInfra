@@ -1,7 +1,7 @@
 from .kv_events import KVEventHandlerBase
 from .base import EventSubscriberConfig
 from .zmq_kvevent_subscriber import ZMQEventSubscriber
-from tmatrix.components.logging import init_logger
+from tmatrix.common.logging import init_logger
 
 logger = init_logger("events_subscriber/kv_events")
 

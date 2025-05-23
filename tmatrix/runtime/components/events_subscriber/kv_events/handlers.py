@@ -4,11 +4,9 @@ from abc import ABC, abstractmethod
 from collections import defaultdict
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-from tmatrix.components.logging import init_logger
-from .types import (
-    BlockStored, BlockRemoved, AllBlocksCleared, KVCacheEvent, KVEventBatch, BlockInfo, EventType, PrefixMatchResult
-)
-from .stats import EventStatsBase, KVEventStats
+from tmatrix.common.logging import init_logger
+from tmatrix.runtime.metrics import EventStatsBase
+from .types import BlockStored, BlockRemoved, AllBlocksCleared, KVEventBatch, BlockInfo, PrefixMatchResult
 logger = init_logger("events_subscriber/kv_events")
 
 
@@ -24,7 +22,7 @@ class KVEventHandlerBase(ABC):
         参数:
             stats: 统计对象，为None时使用默认实现
         """
-        self.stats = stats or KVEventStats()
+        self.stats = stats
 
     def process_event_batch(self, event_batch: KVEventBatch, instance_id: str) -> None:
         """处理事件批次"""
@@ -58,7 +56,7 @@ class KVEventHandlerBase(ABC):
 
     def get_stats(self) -> Dict[str, Any]:
         """获取统计信息"""
-        return self.stats.get_stats_dict()
+        return self.stats.to_dict()
 
     def clear(self) -> None:
         """清空处理器状态"""

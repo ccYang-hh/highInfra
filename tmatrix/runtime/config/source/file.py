@@ -6,7 +6,7 @@ from typing import Any, Callable, Dict
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
-from tmatrix.components.logging import init_logger
+from tmatrix.common.logging import init_logger
 from .base import ConfigSource
 
 

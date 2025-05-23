@@ -1,4 +1,4 @@
-from tmatrix.components.errors import *
+from tmatrix.common.errors import *
 
 
 def test_error_framework():

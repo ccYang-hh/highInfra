@@ -3,7 +3,7 @@ import logging
 from functools import wraps
 from typing import Optional, cast
 
-from tmatrix.components.logging import init_logger
+from tmatrix.common.logging import init_logger
 
 from .base import AppError
 from .errors import Errors

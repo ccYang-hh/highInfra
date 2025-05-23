@@ -3,7 +3,7 @@ import random
 from typing import Any, Dict, List, Optional, Type, TypeVar
 from fastapi import APIRouter
 
-from tmatrix.components.logging import init_logger
+from tmatrix.common.logging import init_logger
 from tmatrix.runtime.service_discovery import Endpoint, EndpointType, EndpointStatus
 from tmatrix.runtime.pipeline import StageHook, PipelineHook, PipelineStage
 from tmatrix.runtime.plugins import Plugin, IPluginConfig
@@ -38,7 +38,7 @@ class RouterStage(PipelineStage):
         """初始化所有支持的路由策略"""
         # 初始化轮询路由
         if RouterStrategy.RoundRobin in self.config.support_strategies:
-            self.routers[RouterStrategy.RoundRobin] = RouteStrategy()
+            self.routers[RouterStrategy.RoundRobin] = RoundRobinStrategy()
 
         # 初始化会话路由
         if RouterStrategy.Session in self.config.support_strategies:

@@ -2,7 +2,7 @@ import os
 os.environ['CUDA_DEVICE_ORDER'] = 'PCI_BUS_ID'
 
 import torch
-from tmatrix.components.logging import init_logger
+from tmatrix.common.logging import init_logger
 from tmatrix.cache_accelerators.kvshare import KVShareManager
 
 logger = init_logger(__name__)

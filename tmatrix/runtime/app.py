@@ -1,7 +1,7 @@
 import signal
 import uvicorn
 
-from tmatrix.components.logging import init_logger
+from tmatrix.common.logging import init_logger
 from .core import RuntimeCore
 from .args import parse_args
 

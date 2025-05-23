@@ -5,7 +5,7 @@ from enum import Enum
 from dataclasses import dataclass
 from typing import Any, Callable, Optional, Dict
 
-from tmatrix.components.logging import init_logger
+from tmatrix.common.logging import init_logger
 
 logger = init_logger("runtime/utils")
 

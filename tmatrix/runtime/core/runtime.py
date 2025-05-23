@@ -11,7 +11,8 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 
-from tmatrix.components.logging import init_logger
+from tmatrix.common.logging import init_logger
+from tmatrix.runtime.service_discovery import get_etcd_service_discovery
 from tmatrix.runtime.pipeline import Pipeline, PipelineBuilder, PipelineBuilderConfig
 from tmatrix.runtime.plugins import PluginManager
 from tmatrix.runtime.config import get_config_manager, PipelineConfig, PipelineRoute
@@ -95,29 +96,34 @@ class RuntimeCore:
         # 应用所有路由
         self._setup_routes()
 
-        # 注册默认路由
-        self._register_default_routes()
-
         # 标记为已初始化
         self._is_initialized = True
 
         # 注册全局state
-        self.app.state.runtime = self  # type: ignore
-        self.app.state.event_bus = self.event_bus  # type: ignore
-        self.app.state.config_manager = self.config_manager  # type: ignore
-        self.app.state.config = self.config  # type: ignore
-        self.app.state.router_manager = self.router_manager  # type: ignore
-        self.app.state.pipelines = self.pipelines  # type: ignore
+        self.set_app_state()
+
+        logger.info(f"{self.config.app_name} 初始化成功")
+
+    def set_app_state(self) -> None:
+        # 1.先拉起服务发现
         self.app.state.service_discovery = get_etcd_service_discovery(  # type: ignore
             self.config.etcd.host, self.config.etcd.port)
 
-        # 条件判断
+        # 2.条件判断，启用了vLLM Router时，才拉起PrefixCaching服务
         if self.plugin_manager.get_plugin("vllm_router") is not None:
             from tmatrix.runtime.services.prefix_cache import PrefixCacheService
             prefix_cache_service = PrefixCacheService()
+            self.app.state.prefix_cache = prefix_cache_service  # type: ignore
+            # 开启订阅
+            self.app.state.prefix_cache.start()                 # type: ignore
 
-
-        logger.info(f"{self.config.app_name} 初始化成功")
+        # 3.注册其它组件
+        self.app.state.runtime = self               # type: ignore
+        self.app.state.event_bus = self.event_bus   # type: ignore
+        self.app.state.config_manager = self.config_manager  # type: ignore
+        self.app.state.config = self.config                  # type: ignore
+        self.app.state.router_manager = self.router_manager  # type: ignore
+        self.app.state.pipelines = self.pipelines            # type: ignore
 
     async def shutdown(self) -> None:
         """关闭运行时核心"""
@@ -217,6 +223,9 @@ class RuntimeCore:
 
         # 应用所有路由到FastAPI应用
         self.router_manager.apply_to_app(self.app)
+
+        # 注册默认API路由
+        self._register_default_routes()
 
     def _register_default_routes(self) -> None:
         """注册默认API路由"""

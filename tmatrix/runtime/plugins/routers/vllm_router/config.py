@@ -2,7 +2,7 @@ from enum import Enum, auto
 from dataclasses import dataclass, field
 from typing import List, Dict, Any
 
-from tmatrix.components.logging import init_logger
+from tmatrix.common.logging import init_logger
 from tmatrix.runtime.plugins import PluginConfig
 
 logger = init_logger("runtime/plugins")

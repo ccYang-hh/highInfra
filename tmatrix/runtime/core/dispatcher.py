@@ -2,7 +2,7 @@ from typing import Dict, Optional, Callable, List
 from fastapi import Request, Response, BackgroundTasks
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from tmatrix.components.logging import init_logger
+from tmatrix.common.logging import init_logger
 from tmatrix.runtime.pipeline import Pipeline
 from tmatrix.runtime.core.context import RequestContext, RequestState
 

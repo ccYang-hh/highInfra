@@ -11,7 +11,7 @@ import time
 from pathlib import Path
 
 # 导入系统模块
-from tmatrix.components.logging import init_logger
+from tmatrix.common.logging import init_logger
 from tmatrix.runtime.plugins.routers.vllm_router import RouterPlugin, RouterStrategy
 from tmatrix.runtime.utils import PluginEvent, PluginEventType, EventBus
 from tmatrix.runtime.config import PluginInfo, PluginRegistryConfig

@@ -5,7 +5,7 @@ from typing import List, Optional
 from .types import TransportType, Endpoint, EndpointType, PodServiceLabel
 from .base import CachedServiceDiscovery
 
-from tmatrix.components.logging import init_logger
+from tmatrix.common.logging import init_logger
 logger = init_logger(__name__)
 
 

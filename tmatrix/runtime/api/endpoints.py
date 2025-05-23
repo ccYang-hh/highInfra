@@ -121,6 +121,20 @@ async def update_endpoint(endpoint_id: str, data: EndpointAPI):
     return internal_endpoint
 
 
+@router.delete("/all", status_code=200)
+async def delete_all_endpoint():
+    """删除端点，该API应置于delete_endpoint前，防止接口匹配被抢占"""
+    discovery = get_etcd_service_discovery()
+    assert discovery is not None, "服务发现组件异常!"
+
+    endpoints = discovery.get_endpoints()
+    await run_sync(discovery.remove_all_endpoints)
+    return {
+        "status": "success",
+        "endpoints": [item.endpoint_id for item in endpoints]
+    }
+
+
 @router.delete("/{endpoint_id}", status_code=204)
 async def delete_endpoint(endpoint_id: str):
     """删除端点"""

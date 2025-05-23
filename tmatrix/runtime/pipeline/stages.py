@@ -2,7 +2,7 @@ import time
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional, Set, TypeVar
 
-from tmatrix.components.logging import init_logger
+from tmatrix.common.logging import init_logger
 from tmatrix.runtime.core.context import RequestContext
 from .hooks import StageHook
 
@@ -196,7 +196,7 @@ class PipelineStage(ABC):
                 logger.error(f"Error executing {hook_type} hook {hook.__class__.__name__}: {e}")
 
     @abstractmethod
-    async def process(self, context: RequestContext) -> None:
+    async def process(self, context: RequestContext) -> Optional[Dict[str, Any]]:
         """
         处理请求上下文
 

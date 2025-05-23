@@ -18,7 +18,7 @@ from typing import Dict, List, Set, Optional, Any, Type, Callable, TypeVar, Tupl
 
 from fastapi import APIRouter
 
-from tmatrix.components.logging import init_logger
+from tmatrix.common.logging import init_logger
 from tmatrix.runtime.pipeline.stages import PipelineStage
 from tmatrix.runtime.pipeline.hooks import PipelineHook, StageHook
 from tmatrix.runtime.pipeline.pipeline import Pipeline

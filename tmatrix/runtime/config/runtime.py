@@ -6,12 +6,12 @@ from http import HTTPMethod
 from dataclasses import dataclass, field, asdict, fields
 from typing import Any, Dict, List, get_type_hints, Tuple, Optional, Callable
 
-from tmatrix.components.logging import init_logger
-from tmatrix.components.errors import AppError
+from tmatrix.common.logging import init_logger
+from tmatrix.common.errors import AppError
 from tmatrix.runtime.service_discovery import ServiceDiscoveryType
 from tmatrix.runtime.utils import ConfigEvent, EventBus
 from tmatrix.runtime.config import ConfigValidator, FileConfigSource
-from tmatrix.components.logging import init_logger
+from tmatrix.common.logging import init_logger
 
 logger = init_logger("runtime/config")
 

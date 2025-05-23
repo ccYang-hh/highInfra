@@ -5,7 +5,7 @@ from pathlib import Path
 from dataclasses import asdict
 from typing import Any, Dict, List, Optional, Union
 
-from tmatrix.components.logging import init_logger
+from tmatrix.common.logging import init_logger
 from .validator import ConfigValidator
 
 logger = init_logger("runtime/config")

@@ -2,7 +2,7 @@ import sys
 import importlib.util
 from typing import Optional, Any, Dict, TypeVar
 
-from tmatrix.components.logging import init_logger
+from tmatrix.common.logging import init_logger
 
 logger = init_logger("runtime/plugins")
 

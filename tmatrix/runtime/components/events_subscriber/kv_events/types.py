@@ -4,7 +4,7 @@ from typing import  List, Optional, Union
 
 import msgspec
 
-from tmatrix.components.logging import init_logger
+from tmatrix.common.logging import init_logger
 logger = init_logger("events_subscriber/kv_events")
 
 

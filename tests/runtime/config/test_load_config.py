@@ -1,5 +1,5 @@
 import time
-from tmatrix.components.logging import init_logger
+from tmatrix.common.logging import init_logger
 from tmatrix.runtime.config import get_config_manager
 
 logger = init_logger("tests/runtime/config")

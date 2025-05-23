@@ -1,6 +1,6 @@
-from enum import Enum, auto
+from enum import Enum
 import time
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from dataclasses import dataclass, field
 
 
@@ -20,13 +20,31 @@ class TransportType(Enum):
 
 class EndpointType(Enum):
     """端点服务类型，基于OpenAI"""
-    COMPLETION = auto()
-    CHAT_COMPLETION = auto()
+    COMPLETION = "completion"
+    CHAT_COMPLETION = "chat_completion"
 
 
 class EndpointStatus(Enum):
-    HEALTHY = auto()
-    UNHEALTHY = auto()
+    HEALTHY = 0
+    UNHEALTHY = 1
+
+
+class KVRole(Enum):
+    PRODUCER: str = "producer"
+    CONSUMER: str = "consumer"
+    BOTH: str = "both"
+
+
+@dataclass
+class KVEventsConfig:
+    enable_kv_cache_events: bool = False
+    publisher: str = "null"
+    endpoint: str = "tcp://*:5557"
+    replay_endpoint: Optional[str] = None
+    buffer_steps: int = 10_000
+    hwm: int = 100_000
+    max_queue_size: int = 100_000
+    topic: str = ""
 
 
 # 高性能端点信息，保持轻量
@@ -37,10 +55,12 @@ class Endpoint:
     address: str                   # 连接地址
     model_name: str                # 当前主服务模型
     priority: int = 0                 # 优先级，可用于负载均衡
+    kv_role: KVRole = KVRole.BOTH     # KV角色
     transport_type: TransportType = TransportType.HTTP  # 传输类型
     status: EndpointStatus = EndpointStatus.UNHEALTHY   # 端点健康状态
     endpoint_type: List[EndpointType] = field(default_factory=list)   # 端点服务类型
     added_timestamp: float = field(default_factory=lambda: time.time())  # 添加时间
+    event_config: KVEventsConfig = KVEventsConfig()         # KVEvent配置
     metadata: Dict[str, Any] = field(default_factory=dict)  # 元数据
 
 

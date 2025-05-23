@@ -1,8 +1,9 @@
 from typing import Dict, List, Optional
 
-from tmatrix.components.logging import init_logger
-from tmatrix.components.events_subscriber.kv_events import KVEventStats, PrefixCacheFinder
-from tmatrix.components.events_subscriber import ZMQInstanceConfig, ZMQEventSubscriber, SubscriberFactory
+from tmatrix.common.logging import init_logger
+from tmatrix.runtime.metrics import StatType, KVEventStats, MetricsRegistry
+from tmatrix.runtime.components.events_subscriber.kv_events import PrefixCacheFinder
+from tmatrix.runtime.components.events_subscriber import ZMQInstanceConfig, ZMQEventSubscriber, SubscriberFactory
 
 logger = init_logger("events_subscriber/kv_events")
 
@@ -21,7 +22,7 @@ class PrefixCacheService:
             topic: 订阅主题
         """
         # 创建统计模块
-        self.stats = KVEventStats()
+        self.stats: KVEventStats = MetricsRegistry().get_stats_instance(StatType.KV_EVENTS)
 
         # 创建前缀缓存查找器
         self.finder = PrefixCacheFinder(stats=self.stats)
@@ -126,7 +127,7 @@ class PrefixCacheService:
 
     def get_stats(self) -> Dict:
         """获取统计信息"""
-        stats_dict = self.stats.get_stats_dict()
+        stats_dict = self.stats.to_dict()
 
         # 添加订阅器状态
         if hasattr(self.subscriber, 'get_running_instances'):

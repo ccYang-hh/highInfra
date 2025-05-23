@@ -1,6 +1,6 @@
 import httpx
 
-from tmatrix.components.logging import init_logger
+from tmatrix.common.logging import init_logger
 logger = init_logger(__name__)
 
 

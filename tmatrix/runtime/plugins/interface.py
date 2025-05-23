@@ -2,7 +2,7 @@ from fastapi import APIRouter
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional, Set, Callable, Type, TypeVar, Generic
 
-from tmatrix.components.logging import init_logger
+from tmatrix.common.logging import init_logger
 from tmatrix.runtime.plugins import IPluginConfig, PluginConfig, FileSourcePluginConfig
 from tmatrix.runtime.pipeline.stages import PipelineStage
 from tmatrix.runtime.pipeline.hooks import PipelineHook, StageHook

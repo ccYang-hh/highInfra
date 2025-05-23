@@ -5,7 +5,7 @@ from .types import (
     TransportType,
     Endpoint
 )
-from .etcd_service_discovery import EtcdServiceDiscovery
+from .etcd_service_discovery import get_etcd_service_discovery, EtcdServiceDiscovery
 
 
 __all__ = [
@@ -15,5 +15,6 @@ __all__ = [
     'EndpointType',
     'TransportType',
 
+    'get_etcd_service_discovery',
     'EtcdServiceDiscovery',
 ]

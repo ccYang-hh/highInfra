@@ -1,7 +1,7 @@
 import time
 from typing import TypeVar, List, Optional, AsyncGenerator
 
-from tmatrix.components.logging import init_logger
+from tmatrix.common.logging import init_logger
 from tmatrix.runtime.utils import HTTPXClientWrapper
 from tmatrix.runtime.pipeline import PipelineStage
 from tmatrix.runtime.plugins import Plugin
