@@ -1,0 +1,838 @@
+{
+  "id": null,
+  "title": "tMatrix推理服务监控大屏",
+  "tags": ["ai", "inference", "vllm", "runtime"],
+  "style": "dark",
+  "timezone": "",
+  "panels": [
+    {
+      "id": 1,
+      "title": "推理引擎指标概览",
+      "type": "row",
+      "collapsed": false,
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 0}
+    },
+    {
+      "id": 2,
+      "title": "GPU显存使用率",
+      "type": "timeseries",
+      "datasource": "tmatrix",
+      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 1},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 20,
+            "gradientMode": "none",
+            "hideFrom": {"legend": false, "tooltip": false, "vis": false},
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {"type": "linear"},
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {"group": "A", "mode": "none"},
+            "thresholdsStyle": {"mode": "off"}
+          },
+          "max": 1,
+          "min": 0,
+          "unit": "percentunit"
+        }
+      },
+      "options": {
+        "legend": {"calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": false},
+        "tooltip": {"mode": "multi", "sort": "desc"}
+      },
+      "targets": [{"expr": "vllm:gpu_cache_usage_perc", "legendFormat": "{{exported_instance}}", "refId": "A"}]
+    },
+    {
+      "id": 3,
+      "title": "运行中请求数",
+      "type": "timeseries",
+      "datasource": "tmatrix",
+      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 1},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 20,
+            "gradientMode": "none",
+            "hideFrom": {"legend": false, "tooltip": false, "vis": false},
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {"type": "linear"},
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {"group": "A", "mode": "none"},
+            "thresholdsStyle": {"mode": "off"}
+          },
+          "unit": "short"
+        }
+      },
+      "options": {
+        "legend": {"calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": false},
+        "tooltip": {"mode": "multi", "sort": "desc"}
+      },
+      "targets": [{"expr": "vllm:num_requests_running", "legendFormat": "{{exported_instance}}", "refId": "A"}]
+    },
+    {
+      "id": 4,
+      "title": "排队中请求数",
+      "type": "timeseries",
+      "datasource": "tmatrix",
+      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 1},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 20,
+            "gradientMode": "none",
+            "hideFrom": {"legend": false, "tooltip": false, "vis": false},
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {"type": "linear"},
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {"group": "A", "mode": "none"},
+            "thresholdsStyle": {"mode": "off"}
+          },
+          "unit": "short"
+        }
+      },
+      "options": {
+        "legend": {"calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": false},
+        "tooltip": {"mode": "multi", "sort": "desc"}
+      },
+      "targets": [{"expr": "vllm:num_requests_waiting", "legendFormat": "{{exported_instance}}", "refId": "A"}]
+    },
+    {
+      "id": 5,
+      "title": "Prompt Token处理速率",
+      "type": "timeseries",
+      "datasource": "tmatrix",
+      "gridPos": {"h": 7, "w": 12, "x": 0, "y": 9},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 15,
+            "gradientMode": "none",
+            "hideFrom": {"legend": false, "tooltip": false, "vis": false},
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {"type": "linear"},
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {"group": "A", "mode": "none"},
+            "thresholdsStyle": {"mode": "off"}
+          },
+          "unit": "tps"
+        }
+      },
+      "options": {
+        "legend": {"calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": false},
+        "tooltip": {"mode": "multi", "sort": "desc"}
+      },
+      "targets": [
+        {"expr": "rate(vllm:prompt_tokens_total[1m])", "legendFormat": "{{exported_instance}}", "refId": "A"}
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Generation Token处理速率",
+      "type": "timeseries",
+      "datasource": "tmatrix",
+      "gridPos": {"h": 7, "w": 12, "x": 12, "y": 9},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 15,
+            "gradientMode": "none",
+            "hideFrom": {"legend": false, "tooltip": false, "vis": false},
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {"type": "linear"},
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {"group": "A", "mode": "none"},
+            "thresholdsStyle": {"mode": "off"}
+          },
+          "unit": "tps"
+        }
+      },
+      "options": {
+        "legend": {"calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": false},
+        "tooltip": {"mode": "multi", "sort": "desc"}
+      },
+      "targets": [
+        {"expr": "rate(vllm:generation_tokens_total[1m])", "legendFormat": "{{exported_instance}}", "refId": "A"}
+      ]
+    },
+    {
+      "id": 7,
+      "title": "推理服务核心性能指标",
+      "type": "row",
+      "collapsed": false,
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 16}
+    },
+    {
+      "id": 8,
+      "title": "TTFT",
+      "type": "timeseries",
+      "datasource": "tmatrix",
+      "gridPos": {"h": 7, "w": 12, "x": 0, "y": 17},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 15,
+            "gradientMode": "none",
+            "hideFrom": {"legend": false, "tooltip": false, "vis": false},
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {"type": "linear"},
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {"group": "A", "mode": "none"},
+            "thresholdsStyle": {"mode": "off"}
+          },
+          "unit": "s"
+        }
+      },
+      "options": {
+        "legend": {"calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": false},
+        "tooltip": {"mode": "multi", "sort": "desc"}
+      },
+      "targets": [
+        {"expr": "histogram_quantile(0.5, rate(vllm:time_to_first_token_seconds_bucket[5m]))", "legendFormat": "{{exported_instance}}/p50", "refId": "A"},
+        {"expr": "histogram_quantile(0.9, rate(vllm:time_to_first_token_seconds_bucket[5m]))", "legendFormat": "{{exported_instance}}/p90", "refId": "B"},
+        {"expr": "histogram_quantile(0.99, rate(vllm:time_to_first_token_seconds_bucket[5m]))", "legendFormat": "{{exported_instance}}/p99", "refId": "C"}
+      ]
+    },
+    {
+      "id": 9,
+      "title": "TPOT",
+      "type": "timeseries",
+      "datasource": "tmatrix",
+      "gridPos": {"h": 7, "w": 12, "x": 12, "y": 17},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 15,
+            "gradientMode": "none",
+            "hideFrom": {"legend": false, "tooltip": false, "vis": false},
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {"type": "linear"},
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {"group": "A", "mode": "none"},
+            "thresholdsStyle": {"mode": "off"}
+          },
+          "unit": "s"
+        }
+      },
+      "options": {
+        "legend": {"calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": false},
+        "tooltip": {"mode": "multi", "sort": "desc"}
+      },
+      "targets": [
+        {"expr": "histogram_quantile(0.5, rate(vllm:time_per_output_token_seconds_bucket[5m]))", "legendFormat": "{{exported_instance}}/p50", "refId": "A"},
+        {"expr": "histogram_quantile(0.9, rate(vllm:time_per_output_token_seconds_bucket[5m]))", "legendFormat": "{{exported_instance}}/p90", "refId": "B"},
+        {"expr": "histogram_quantile(0.99, rate(vllm:time_per_output_token_seconds_bucket[5m]))", "legendFormat": "{{exported_instance}}/p99", "refId": "C"}
+      ]
+    },
+    {
+      "id": 11,
+      "title": "端到端请求延迟",
+      "type": "timeseries",
+      "datasource": "tmatrix",
+      "gridPos": {"h": 7, "w": 8, "x": 0, "y": 25},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 15,
+            "gradientMode": "none",
+            "hideFrom": {"legend": false, "tooltip": false, "vis": false},
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {"type": "linear"},
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {"group": "A", "mode": "none"},
+            "thresholdsStyle": {"mode": "off"}
+          },
+          "unit": "s"
+        }
+      },
+      "options": {
+        "legend": {"calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": false},
+        "tooltip": {"mode": "multi", "sort": "desc"}
+      },
+      "targets": [
+        {"expr": "histogram_quantile(0.5, rate(vllm:e2e_request_latency_seconds_bucket[5m]))", "legendFormat": "{{exported_instance}}/p50", "refId": "A"},
+        {"expr": "histogram_quantile(0.9, rate(vllm:e2e_request_latency_seconds_bucket[5m]))", "legendFormat": "{{exported_instance}}/p90", "refId": "B"},
+        {"expr": "histogram_quantile(0.99, rate(vllm:e2e_request_latency_seconds_bucket[5m]))", "legendFormat": "{{exported_instance}}/p99", "refId": "C"}
+      ]
+    },
+    {
+      "id": 12,
+      "title": "请求入队等待时间",
+      "type": "timeseries",
+      "datasource": "tmatrix",
+      "gridPos": {"h": 7, "w": 8, "x": 8, "y": 25},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 15,
+            "gradientMode": "none",
+            "hideFrom": {"legend": false, "tooltip": false, "vis": false},
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {"type": "linear"},
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {"group": "A", "mode": "none"},
+            "thresholdsStyle": {"mode": "off"}
+          },
+          "unit": "s"
+        }
+      },
+      "options": {
+        "legend": {"calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": false},
+        "tooltip": {"mode": "multi", "sort": "desc"}
+      },
+      "targets": [
+        {"expr": "histogram_quantile(0.5, rate(vllm:request_queue_time_seconds_bucket[5m]))", "legendFormat": "{{exported_instance}}/p50", "refId": "A"},
+        {"expr": "histogram_quantile(0.9, rate(vllm:request_queue_time_seconds_bucket[5m]))", "legendFormat": "{{exported_instance}}/p90", "refId": "B"},
+        {"expr": "histogram_quantile(0.99, rate(vllm:request_queue_time_seconds_bucket[5m]))", "legendFormat": "{{exported_instance}}/p99", "refId": "C"}
+      ]
+    },
+    {
+      "id": 13,
+      "title": "请求推理时间",
+      "type": "timeseries",
+      "datasource": "tmatrix",
+      "gridPos": {"h": 7, "w": 8, "x": 16, "y": 25},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 15,
+            "gradientMode": "none",
+            "hideFrom": {"legend": false, "tooltip": false, "vis": false},
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {"type": "linear"},
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {"group": "A", "mode": "none"},
+            "thresholdsStyle": {"mode": "off"}
+          },
+          "unit": "s"
+        }
+      },
+      "options": {
+        "legend": {"calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": false},
+        "tooltip": {"mode": "multi", "sort": "desc"}
+      },
+      "targets": [
+        {"expr": "histogram_quantile(0.5, rate(vllm:request_inference_time_seconds_bucket[5m]))", "legendFormat": "{{exported_instance}}/p50", "refId": "A"},
+        {"expr": "histogram_quantile(0.9, rate(vllm:request_inference_time_seconds_bucket[5m]))", "legendFormat": "{{exported_instance}}/p90", "refId": "B"},
+        {"expr": "histogram_quantile(0.99, rate(vllm:request_inference_time_seconds_bucket[5m]))", "legendFormat": "{{exported_instance}}/p99", "refId": "C"}
+      ]
+    },
+    {
+      "id": 15,
+      "title": "请求Prefill阶段耗时",
+      "type": "timeseries",
+      "datasource": "tmatrix",
+      "gridPos": {"h": 7, "w": 12, "x": 0, "y": 33},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 15,
+            "gradientMode": "none",
+            "hideFrom": {"legend": false, "tooltip": false, "vis": false},
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {"type": "linear"},
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {"group": "A", "mode": "none"},
+            "thresholdsStyle": {"mode": "off"}
+          },
+          "unit": "s"
+        }
+      },
+      "options": {
+        "legend": {"calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": false},
+        "tooltip": {"mode": "multi", "sort": "desc"}
+      },
+      "targets": [
+        {"expr": "histogram_quantile(0.5, rate(vllm:request_prefill_time_seconds_bucket[5m]))", "legendFormat": "{{exported_instance}}/p50", "refId": "A"},
+        {"expr": "histogram_quantile(0.9, rate(vllm:request_prefill_time_seconds_bucket[5m]))", "legendFormat": "{{exported_instance}}/p90", "refId": "B"},
+        {"expr": "histogram_quantile(0.99, rate(vllm:request_prefill_time_seconds_bucket[5m]))", "legendFormat": "{{exported_instance}}/p99", "refId": "C"}
+      ]
+    },
+    {
+      "id": 16,
+      "title": "请求Decode阶段耗时",
+      "type": "timeseries",
+      "datasource": "tmatrix",
+      "gridPos": {"h": 7, "w": 12, "x": 12, "y": 33},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 15,
+            "gradientMode": "none",
+            "hideFrom": {"legend": false, "tooltip": false, "vis": false},
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {"type": "linear"},
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {"group": "A", "mode": "none"},
+            "thresholdsStyle": {"mode": "off"}
+          },
+          "unit": "s"
+        }
+      },
+      "options": {
+        "legend": {"calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": false},
+        "tooltip": {"mode": "multi", "sort": "desc"}
+      },
+      "targets": [
+        {"expr": "histogram_quantile(0.5, rate(vllm:request_decode_time_seconds_bucket[5m]))", "legendFormat": "{{exported_instance}}/p50", "refId": "A"},
+        {"expr": "histogram_quantile(0.9, rate(vllm:request_decode_time_seconds_bucket[5m]))", "legendFormat": "{{exported_instance}}/p90", "refId": "B"},
+        {"expr": "histogram_quantile(0.99, rate(vllm:request_decode_time_seconds_bucket[5m]))", "legendFormat": "{{exported_instance}}/p99", "refId": "C"}
+      ]
+    },
+    {
+      "id": 17,
+      "title": "Runtime控制中心（KVCache Event订阅系统）",
+      "type": "row",
+      "collapsed": false,
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 40}
+    },
+    {
+      "id": 18,
+      "title": "KV Cache Active Blocks总数",
+      "type": "stat",
+      "datasource": "tmatrix",
+      "gridPos": {"h": 6, "w": 8, "x": 0, "y": 41},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "unit": "short"
+        }
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+        "textMode": "auto"
+      },
+      "targets": [
+        {"expr": "runtime_kv_active_blocks", "refId": "A"}
+      ]
+    },
+    {
+      "id": 20,
+      "title": "KV Cache Block更新频率",
+      "type": "timeseries",
+      "datasource": "tmatrix",
+      "gridPos": {"h": 6, "w": 8, "x": 8, "y": 41},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 15,
+            "gradientMode": "none",
+            "hideFrom": {"legend": false, "tooltip": false, "vis": false},
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {"type": "linear"},
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {"group": "A", "mode": "none"},
+            "thresholdsStyle": {"mode": "off"}
+          },
+          "unit": "ops"
+        }
+      },
+      "options": {
+        "legend": {"calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": false},
+        "tooltip": {"mode": "multi", "sort": "desc"}
+      },
+      "targets": [
+        {"expr": "rate(runtime_kv_blocks_stored_total[1m])", "legendFormat": "存储速率", "refId": "A"},
+        {"expr": "rate(runtime_kv_blocks_removed_total[1m])", "legendFormat": "移除速率", "refId": "B"}
+      ]
+    },
+    {
+      "id": 21,
+      "title": "总Token处理速率",
+      "type": "timeseries",
+      "datasource": "tmatrix",
+      "gridPos": {"h": 6, "w": 8, "x": 16, "y": 41},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 15,
+            "gradientMode": "none",
+            "hideFrom": {"legend": false, "tooltip": false, "vis": false},
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {"type": "linear"},
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {"group": "A", "mode": "none"},
+            "thresholdsStyle": {"mode": "off"}
+          },
+          "unit": "tps"
+        }
+      },
+      "options": {
+        "legend": {"calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": false},
+        "tooltip": {"mode": "multi", "sort": "desc"}
+      },
+      "targets": [
+        {"expr": "rate(runtime_processed_tokens_total[1m])", "legendFormat": "Token处理速率", "refId": "A"}
+      ]
+    },
+    {
+      "id": 22,
+      "title": "Runtime控制中心（调度系统）",
+      "type": "row",
+      "collapsed": false,
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 47}
+    },
+    {
+      "id": 23,
+      "title": "待处理请求数",
+      "type": "timeseries",
+      "datasource": "tmatrix",
+      "gridPos": {"h": 7, "w": 8, "x": 0, "y": 48},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 15,
+            "gradientMode": "none",
+            "hideFrom": {"legend": false, "tooltip": false, "vis": false},
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {"type": "linear"},
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {"group": "A", "mode": "none"},
+            "thresholdsStyle": {"mode": "off"}
+          },
+          "unit": "short"
+        }
+      },
+      "options": {
+        "legend": {"calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": false},
+        "tooltip": {"mode": "multi", "sort": "desc"}
+      },
+      "targets": [
+        {"expr": "runtime_requests_pending", "legendFormat": "待处理请求", "refId": "A"}
+      ]
+    },
+    {
+      "id": 24,
+      "title": "运行中请求数",
+      "type": "timeseries",
+      "datasource": "tmatrix",
+      "gridPos": {"h": 7, "w": 8, "x": 8, "y": 48},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 15,
+            "gradientMode": "none",
+            "hideFrom": {"legend": false, "tooltip": false, "vis": false},
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {"type": "linear"},
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {"group": "A", "mode": "none"},
+            "thresholdsStyle": {"mode": "off"}
+          },
+          "unit": "short"
+        }
+      },
+      "options": {
+        "legend": {"calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": false},
+        "tooltip": {"mode": "multi", "sort": "desc"}
+      },
+      "targets": [
+        {"expr": "runtime_requests_active", "legendFormat": "活跃请求", "refId": "A"}
+      ]
+    },
+    {
+      "id": 25,
+      "title": "请求错误率",
+      "type": "timeseries",
+      "datasource": "tmatrix",
+      "gridPos": {"h": 7, "w": 8, "x": 16, "y": 48},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 15,
+            "gradientMode": "none",
+            "hideFrom": {"legend": false, "tooltip": false, "vis": false},
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {"type": "linear"},
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {"group": "A", "mode": "none"},
+            "thresholdsStyle": {"mode": "off"}
+          },
+          "max": 100,
+          "min": 0,
+          "unit": "percent"
+        }
+      },
+      "options": {
+        "legend": {"calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": false},
+        "tooltip": {"mode": "multi", "sort": "desc"}
+      },
+      "targets": [
+        {"expr": "(rate(runtime_requests_failed_total[5m]) / (rate(runtime_requests_completed_total[5m]) + rate(runtime_requests_failed_total[5m]))) * 100", "legendFormat": "错误率%", "refId": "A"}
+      ]
+    },
+    {
+      "id": 26,
+      "title": "请求完成速率",
+      "type": "timeseries",
+      "datasource": "tmatrix",
+      "gridPos": {"h": 7, "w": 12, "x": 0, "y": 55},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 15,
+            "gradientMode": "none",
+            "hideFrom": {"legend": false, "tooltip": false, "vis": false},
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {"type": "linear"},
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {"group": "A", "mode": "none"},
+            "thresholdsStyle": {"mode": "off"}
+          },
+          "unit": "reqps"
+        }
+      },
+      "options": {
+        "legend": {"calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": false},
+        "tooltip": {"mode": "multi", "sort": "desc"}
+      },
+      "targets": [
+        {"expr": "rate(runtime_requests_completed_total[1m])", "legendFormat": "完成请求/秒", "refId": "A"}
+      ]
+    },
+    {
+      "id": 27,
+      "title": "请求失败率",
+      "type": "timeseries",
+      "datasource": "tmatrix",
+      "gridPos": {"h": 7, "w": 12, "x": 12, "y": 55},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 15,
+            "gradientMode": "none",
+            "hideFrom": {"legend": false, "tooltip": false, "vis": false},
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {"type": "linear"},
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {"group": "A", "mode": "none"},
+            "thresholdsStyle": {"mode": "off"}
+          },
+          "unit": "reqps"
+        }
+      },
+      "options": {
+        "legend": {"calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": false},
+        "tooltip": {"mode": "multi", "sort": "desc"}
+      },
+      "targets": [
+        {"expr": "rate(runtime_requests_failed_total[1m])", "legendFormat": "失败请求/秒", "refId": "A"}
+      ]
+    },
+    {
+      "id": 28,
+      "title": "请求延迟",
+      "type": "timeseries",
+      "datasource": "tmatrix",
+      "gridPos": {"h": 7, "w": 12, "x": 0, "y": 62},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 15,
+            "gradientMode": "none",
+            "hideFrom": {"legend": false, "tooltip": false, "vis": false},
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {"type": "linear"},
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {"group": "A", "mode": "none"},
+            "thresholdsStyle": {"mode": "off"}
+          },
+          "unit": "s"
+        }
+      },
+      "options": {
+        "legend": {"calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": false},
+        "tooltip": {"mode": "multi", "sort": "desc"}
+      },
+      "targets": [
+        {"expr": "runtime_avg_time_to_first_token_seconds", "legendFormat": "首Token时间", "refId": "A"},
+        {"expr": "runtime_avg_request_latency_seconds", "legendFormat": "平均请求延迟", "refId": "B"}
+      ]
+    },
+    {
+      "id": 29,
+      "title": "请求吞吐",
+      "type": "timeseries",
+      "datasource": "tmatrix",
+      "gridPos": {"h": 7, "w": 12, "x": 12, "y": 62},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 15,
+            "gradientMode": "none",
+            "hideFrom": {"legend": false, "tooltip": false, "vis": false},
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {"type": "linear"},
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {"group": "A", "mode": "none"},
+            "thresholdsStyle": {"mode": "off"}
+          },
+          "unit": "rpm"
+        }
+      },
+      "options": {
+        "legend": {"calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": false},
+        "tooltip": {"mode": "multi", "sort": "desc"}
+      },
+      "targets": [
+        {"expr": "runtime_requests_per_minute", "legendFormat": "每分钟请求数", "refId": "A"}
+      ]
+    }
+  ],
+  "time": {"from": "now-1h", "to": "now"},
+  "timepicker": {},
+  "timezone": "",
+  "refresh": "5s",
+  "schemaVersion": 39,
+  "version": 1,
+  "weekStart": ""
+}

@@ -1,17 +1,32 @@
-from typing import Dict, List, Optional
+from typing import List, Dict, Optional
 
 from tmatrix.common.logging import init_logger
 from tmatrix.runtime.metrics import StatType, KVEventStats, MetricsRegistry
-from tmatrix.runtime.components.events_subscriber.kv_events import PrefixCacheFinder
-from tmatrix.runtime.components.events_subscriber import ZMQInstanceConfig, ZMQEventSubscriber, SubscriberFactory
+from tmatrix.runtime.components.events_subscriber import (
+    PrefixCacheFinder, ZMQInstanceConfig, ZMQEventSubscriber, SubscriberFactory,
+)
+logger = init_logger("services/prefix_cache_service")
 
-logger = init_logger("events_subscriber/kv_events")
+
+def get_prefix_cache_service() -> "PrefixCacheService":
+    return PrefixCacheServiceSingleton.get_instance()
+
+
+class PrefixCacheServiceSingleton:
+    """PrefixCacheService单例"""
+    _instance = None
+
+    @classmethod
+    def get_instance(cls, subscriber_type: str = "zmq", topic: str = "kv-events"):
+        if cls._instance is None:
+            cls._instance = PrefixCacheService(subscriber_type=subscriber_type, topic=topic)
+        return cls._instance
 
 
 class PrefixCacheService:
     """
     前缀缓存服务
-    集成了前缀缓存查找器和事件订阅器，提供友好的接口
+    集成了前缀缓存查找器和事件订阅器
     """
 
     def __init__(self, subscriber_type: str = "zmq", topic: str = "kv-events"):
@@ -22,7 +37,7 @@ class PrefixCacheService:
             topic: 订阅主题
         """
         # 创建统计模块
-        self.stats: KVEventStats = MetricsRegistry().get_stats_instance(StatType.KV_EVENTS)
+        self.stats: Optional[KVEventStats] = MetricsRegistry().get_stats_instance(StatType.KV_EVENTS)
 
         # 创建前缀缓存查找器
         self.finder = PrefixCacheFinder(stats=self.stats)
@@ -33,7 +48,7 @@ class PrefixCacheService:
                 self.finder, topic=topic
             )
         elif subscriber_type.lower() == "nats":
-            # 这里应该创建NATS订阅器，但尚未实现
+            # TODO 这里应该创建NATS订阅器，但尚未实现
             raise ValueError("NATS订阅器尚未实现")
         else:
             raise ValueError(f"不支持的订阅器类型: {subscriber_type}")
@@ -41,31 +56,26 @@ class PrefixCacheService:
     def start(self) -> None:
         """启动服务"""
         self.subscriber.start()
-        logger.info("前缀缓存服务已启动")
+        logger.info("全局前缀缓存感知服务已启动")
 
     def stop(self) -> None:
         """停止服务"""
         self.subscriber.stop()
         self.finder.shutdown()
-        logger.info("前缀缓存服务已停止")
+        logger.info("全局前缀缓存感知服务已停止")
 
-    def add_vllm_instance(self, instance_id: str, host: str,
-                          pub_port: int = 5557, replay_port: int = 5558) -> bool:
+    def add_vllm_instance(self, instance_id: str, pub_endpoint: str = "tcp://*:5557", replay_endpoint=None) -> bool:
         """
         添加vLLM实例
         参数:
             instance_id: 实例ID
-            host: 主机地址
-            pub_port: 发布端口
-            replay_port: 重放端口
+            pub_endpoint: 发布地址
+            replay_endpoint: 重放地址
         返回:
             是否成功添加
         """
         if not isinstance(self.subscriber, ZMQEventSubscriber):
             raise TypeError("当前订阅器不支持添加ZMQ实例")
-
-        pub_endpoint = f"tcp://{host}:{pub_port}"
-        replay_endpoint = f"tcp://{host}:{replay_port}"
 
         config = ZMQInstanceConfig(
             instance_id=instance_id,

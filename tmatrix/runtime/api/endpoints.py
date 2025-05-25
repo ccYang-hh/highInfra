@@ -3,12 +3,15 @@ import asyncio
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import JSONResponse
 from concurrent.futures import ThreadPoolExecutor
 
 
 from tmatrix.runtime.service_discovery import (
-    Endpoint, EndpointType, TransportType, EndpointStatus, ServiceDiscoveryType, get_etcd_service_discovery
+    KVRole, KVEventsConfig, Endpoint, EndpointType, TransportType, EndpointStatus, ServiceDiscoveryType,
+    get_etcd_service_discovery
 )
+from tmatrix.runtime.services import get_prefix_cache_service
 
 
 # 单线程执行同步操作（endpoint是非高频调度API）
@@ -21,28 +24,35 @@ async def run_sync(func, *args, **kwargs):
     return await loop.run_in_executor(executor, lambda: func(*args, **kwargs))
 
 
-# 使用您现有的枚举类型定义API模型
+# TODO 考虑将API模型与内部模型统一，减少转换开销
 class EndpointAPI(BaseModel):
     endpoint_id: Optional[str] = Field(None, description="端点ID")
     address: str = Field(..., description="服务地址")
     model_name: str = Field(..., description="模型名称")
+    instance_name: str = Field(..., description="引擎实例标识")
     endpoint_type: List[EndpointType] = Field(..., description="端点类型")
     transport_type: TransportType = Field(TransportType.HTTP, description="传输类型")
-    status: EndpointStatus = Field(EndpointStatus.HEALTHY, description="健康状态")
     priority: int = Field(0, description="优先级")
+    kv_role: KVRole = Field(KVRole.BOTH, description="KV角色")
+    kv_event_config: Optional[KVEventsConfig] = Field(None, description="KV事件配置")
     ttl: Optional[int] = Field(None, description="生存时间(秒)")
+    status: EndpointStatus = Field(EndpointStatus.HEALTHY, description="健康状态")
+    added_timestamp: Optional[float] = Field(None, description="添加时间")
     metadata: Dict[str, Any] = Field(default_factory=dict, description="元数据")
 
     def to_internal(self) -> Endpoint:
         """转换为内部Endpoint模型"""
+        kv_event_config = self.kv_event_config or KVEventsConfig()
         return Endpoint(
             endpoint_id=self.endpoint_id or str(uuid.uuid4()),
             endpoint_type=self.endpoint_type,
             address=self.address,
             model_name=self.model_name,
+            instance_name=self.instance_name,
             transport_type=self.transport_type,
-            status=self.status,
             priority=self.priority,
+            kv_role=self.kv_role,
+            kv_event_config=kv_event_config,
             metadata=self.metadata
         )
 
@@ -53,10 +63,14 @@ class EndpointAPI(BaseModel):
             endpoint_id=endpoint.endpoint_id,
             address=endpoint.address,
             model_name=endpoint.model_name,
+            instance_name=endpoint.instance_name,
             endpoint_type=endpoint.endpoint_type,
             transport_type=endpoint.transport_type,
             status=endpoint.status,
             priority=endpoint.priority,
+            kv_role=endpoint.kv_role,
+            kv_event_config=endpoint.kv_event_config,
+            added_timestamp=endpoint.added_timestamp,
             metadata=endpoint.metadata
         )
 
@@ -70,12 +84,19 @@ async def create_endpoint(data: EndpointAPI):
     """注册新的服务端点"""
     discovery = get_etcd_service_discovery()
 
-    # 转换并注册
+    # 1.注册endpoint
     internal_endpoint = data.to_internal()
     await run_sync(discovery.register_endpoint, internal_endpoint, data.ttl)
 
+    # 2.启动该endpoint对应下游引擎的KVEvent订阅任务
+    prefix_cache_service = get_prefix_cache_service()
+    instance_name = internal_endpoint.instance_name
+    endpoint = internal_endpoint.kv_event_config.endpoint
+    replay_endpoint = internal_endpoint.kv_event_config.replay_endpoint
+    prefix_cache_service.add_vllm_instance(instance_name, endpoint, replay_endpoint)
+
     # 返回创建的端点信息
-    return internal_endpoint
+    return EndpointAPI.from_internal(internal_endpoint)
 
 
 @router.get("", response_model=List[EndpointAPI])
@@ -118,7 +139,7 @@ async def update_endpoint(endpoint_id: str, data: EndpointAPI):
     internal_endpoint = data.to_internal()
     await run_sync(discovery.register_endpoint, internal_endpoint, data.ttl)
 
-    return internal_endpoint
+    return EndpointAPI.from_internal(internal_endpoint)
 
 
 @router.delete("/all", status_code=200)

@@ -3,6 +3,8 @@ from .types import (
     EndpointType,
     EndpointStatus,
     TransportType,
+    KVRole,
+    KVEventsConfig,
     Endpoint
 )
 from .etcd_service_discovery import get_etcd_service_discovery, EtcdServiceDiscovery
@@ -13,8 +15,10 @@ __all__ = [
     'Endpoint',
     'EndpointStatus',
     'EndpointType',
+    'KVRole',
+    'KVEventsConfig',
     'TransportType',
 
-    'get_etcd_service_discovery',
     'EtcdServiceDiscovery',
+    'get_etcd_service_discovery',
 ]

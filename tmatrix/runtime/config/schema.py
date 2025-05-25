@@ -19,11 +19,10 @@ RUNTIME_SCHEMA = {
         "static_path": {"type": "string"},
 
         # 性能和监控配置
-        "worker_threads": {"type": "integer", "minimum": 1},
         "max_batch_size": {"type": "integer", "minimum": 1},
         "request_timeout": {"type": "integer", "minimum": 1},
-        "enable_metrics": {"type": "boolean"},
-        "metrics_port": {"type": "integer", "minimum": 1, "maximum": 65535},
+        "enable_monitor": {"type": "boolean"},
+        "monitor_config": {"type": "string"},
         "enable_auth": {"type": "boolean"},
         "auth_config": {"type": "object"},
 

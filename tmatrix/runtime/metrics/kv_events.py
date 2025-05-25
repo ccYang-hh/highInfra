@@ -133,14 +133,14 @@ class KVEventStats(EventStatsBase):
     def to_dict(self) -> Dict[str, Any]:
         """获取统计信息字典"""
         return {
-            "blocks_tracked": self.blocks_tracked,
-            "blocks_removed": self.blocks_removed,
-            "blocks_cleared": self.blocks_cleared,
-            "active_blocks": len(self.active_blocks),
-            "total_tokens_processed": self.total_tokens_processed,
+            "block_stored_count": self.blocks_tracked,
+            "block_removed_count": self.blocks_removed,
+            "blocks_cleared_count": self.blocks_cleared,
+            "active_blocks_count": len(self.active_blocks),
+            "processed_tokens_total": self.total_tokens_processed,
             "instances_tracked": list(self.instances_tracked),
-            "instance_block_counts": dict(self.instance_block_counts),
-            "instance_token_counts": dict(self.instance_token_counts),
+            "blocks_count": dict(self.instance_block_counts),
+            "processed_tokens_count": dict(self.instance_token_counts),
             "event_counts": dict(self.event_counts),
             "uptime": time.time() - self.start_time,
             "last_update_time": self.last_update_time

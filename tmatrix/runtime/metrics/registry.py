@@ -41,8 +41,8 @@ class MetricsRegistry:
         """获取所有指标"""
         async with self._lock:
             metrics = {
-                "kv_events": self.event_stats.to_dict(),
-                "requests": self.request_stats.to_dict()
+                "kv_events_stats": self.event_stats.to_dict(),
+                "requests_stats": self.request_stats.to_dict()
             }
 
             return metrics

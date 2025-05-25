@@ -1,255 +1,328 @@
+"""
+业务运行时指标收集器
+从业务系统的/api/v1/metrics端点抓取指标
+"""
 import asyncio
 import aiohttp
 import time
-from typing import Dict, List, Any, Optional
-from dataclasses import dataclass
+from typing import List, Dict, Any, Optional
 
-from ..core.metric_core import MetricCollector, logger
-from ..core.registry import get_metric_registry, create_gauge, create_counter, create_histogram
+from tmatrix.monitor.core.base import MetricCollector, MetricValue, MetricType, CollectedEndpoint
 
-
-@dataclass
-class BusinessEndpoint:
-    """业务进程端点信息"""
-    url: str
-    name: str = ""
+from tmatrix.common.logging import init_logger
+logger = init_logger("monitor/collectors")
 
 
-class BusinessProcessCollector(MetricCollector):
-    """业务进程指标收集器"""
+class RuntimeCollector(MetricCollector):
+    """
+    业务运行时指标收集器
+    从业务系统抓取KV缓存事件和请求相关指标
+    """
 
-    def __init__(self, endpoints: List[BusinessEndpoint] = None,
-                 scrape_interval: float = 5.0, registry=None):
+    def __init__(self, endpoints: List[CollectedEndpoint],
+                 scrape_interval: float = 5.0,
+                 timeout: float = 10.0):
         """
-        初始化业务进程指标收集器
+        初始化运行时收集器
 
         Args:
-            endpoints: 要抓取的业务进程端点列表
-            scrape_interval: 抓取间隔，单位为秒
-            registry: 指标注册中心
+            endpoints: 业务系统端点列表，每个端点包含url和name
+            scrape_interval: 抓取间隔（秒）
+            timeout: HTTP请求超时时间（秒）
         """
-        super().__init__(registry or get_metric_registry())
-        self.endpoints = endpoints or []
-        self._scrape_interval = scrape_interval
-        self.process_metrics = {}  # 存储最后抓取的指标
+        super().__init__(name='runtime_collector', scrape_interval=scrape_interval)
+        self.endpoints = endpoints
+        self.timeout = timeout
+        self._session: Optional[aiohttp.ClientSession] = None
 
-        # 注册指标
-        self._register_metrics()
+        # 存储上一次的指标值，用于计算增量
+        self._last_values: Dict[str, Dict[str, Any]] = {}
 
-    def _register_metrics(self):
-        """注册业务进程相关指标"""
-        # KV缓存相关指标
-        self.kv_blocks_stored = create_counter(
-            "business_kv_blocks_stored_total",
-            "Total number of KV blocks stored",
-            ["process_url", "process_name"]
+    async def start(self):
+        """启动收集器，创建HTTP会话"""
+        # 创建HTTP会话
+        self._session = aiohttp.ClientSession(
+            timeout=aiohttp.ClientTimeout(total=self.timeout)
         )
+        await super().start()
 
-        self.kv_blocks_removed = create_counter(
-            "business_kv_blocks_removed_total",
-            "Total number of KV blocks removed",
-            ["process_url", "process_name"]
-        )
+    async def stop(self):
+        """停止收集器，关闭HTTP会话"""
+        await super().stop()
+        if self._session:
+            await self._session.close()
+            self._session = None
 
-        self.kv_blocks_cleared = create_counter(
-            "business_kv_blocks_cleared_total",
-            "Total number of times all KV blocks cleared",
-            ["process_url", "process_name"]
-        )
-
-        self.kv_active_blocks = create_gauge(
-            "business_kv_active_blocks",
-            "Number of active KV blocks",
-            ["process_url", "process_name"]
-        )
-
-        self.kv_tokens_processed = create_counter(
-            "business_kv_tokens_processed_total",
-            "Total number of tokens processed",
-            ["process_url", "process_name"]
-        )
-
-        # 请求相关指标
-        self.pending_requests = create_gauge(
-            "business_pending_requests",
-            "Number of pending requests",
-            ["process_url", "process_name"]
-        )
-
-        self.active_requests = create_gauge(
-            "business_active_requests",
-            "Number of active requests",
-            ["process_url", "process_name"]
-        )
-
-        self.completed_requests = create_counter(
-            "business_completed_requests_total",
-            "Total number of completed requests",
-            ["process_url", "process_name"]
-        )
-
-        self.failed_requests = create_counter(
-            "business_failed_requests_total",
-            "Total number of failed requests",
-            ["process_url", "process_name"]
-        )
-
-        self.avg_ttft = create_gauge(
-            "business_avg_ttft_seconds",
-            "Average time to first token in seconds",
-            ["process_url", "process_name"]
-        )
-
-        self.avg_latency = create_gauge(
-            "business_avg_latency_seconds",
-            "Average request latency in seconds",
-            ["process_url", "process_name"]
-        )
-
-    def add_endpoint(self, endpoint: BusinessEndpoint):
-        """添加要抓取的端点"""
+    async def add_endpoint(self, endpoint: CollectedEndpoint):
         self.endpoints.append(endpoint)
 
-    def remove_endpoint(self, url: str):
-        """移除指定URL的端点"""
-        self.endpoints = [e for e in self.endpoints if e.url != url]
+    async def collect(self) -> List[MetricValue]:
+        """
+        从所有业务实例收集指标
 
-    async def _scrape_endpoint(self, endpoint: BusinessEndpoint) -> Optional[Dict[str, Any]]:
-        """从单个端点抓取指标"""
-        url = endpoint.url
-        metrics_url = f"{url}/metrics"
+        Returns:
+            收集到的指标列表
+        """
+        if not self._session:
+            logger.error("HTTP session not initialized")
+            return []
 
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(metrics_url, timeout=self._scrape_interval) as response:
-                    if response.status != 200:
-                        logger.error(f"Failed to scrape metrics from {url}: HTTP {response.status}")
-                        return None
+        if len(self.endpoints) == 0:
+            return []
 
-                    return await response.json()
-        except asyncio.TimeoutError:
-            logger.error(f"Timeout scraping metrics from {url}")
-            return None
-        except Exception as e:
-            logger.error(f"Failed to scrape metrics from {url}: {e}")
-            return None
-
-    async def _update_metrics_from_scraped_data(self, endpoint: BusinessEndpoint, data: Dict[str, Any]):
-        """从抓取的数据更新指标"""
-        url = endpoint.url
-        name = endpoint.name
-        labels = {"process_url": url, "process_name": name}
-
-        # 更新KV缓存指标
-        if "event_stats" in data:
-            event_stats = data["event_stats"]
-
-            # 使用gauge设置当前值
-            await self.kv_active_blocks.set(
-                event_stats.get("active_blocks_count", 0),
-                labels
-            )
-
-            # 更新计数器前需要获取当前值，计算增量
-            current_stored = await self.kv_blocks_stored.get_value(labels)
-            current_removed = await self.kv_blocks_removed.get_value(labels)
-            current_cleared = await self.kv_blocks_cleared.get_value(labels)
-            current_tokens = await self.kv_tokens_processed.get_value(labels)
-
-            # 只增加增量部分
-            if url in self.process_metrics and "event_stats" in self.process_metrics[url]:
-                old_stats = self.process_metrics[url]["event_stats"]
-
-                stored_inc = event_stats.get("block_stored_count", 0) - old_stats.get("block_stored_count", 0)
-                removed_inc = event_stats.get("block_removed_count", 0) - old_stats.get("block_removed_count", 0)
-                cleared_inc = event_stats.get("all_blocks_cleared_count", 0) - old_stats.get("all_blocks_cleared_count",
-                                                                                             0)
-                tokens_inc = event_stats.get("total_tokens_processed", 0) - old_stats.get("total_tokens_processed", 0)
-
-                # 只有在有增量时才更新
-                if stored_inc > 0:
-                    await self.kv_blocks_stored.inc(stored_inc, labels)
-                if removed_inc > 0:
-                    await self.kv_blocks_removed.inc(removed_inc, labels)
-                if cleared_inc > 0:
-                    await self.kv_blocks_cleared.inc(cleared_inc, labels)
-                if tokens_inc > 0:
-                    await self.kv_tokens_processed.inc(tokens_inc, labels)
-            else:
-                # 首次获取，直接设置
-                await self.kv_blocks_stored.inc(event_stats.get("block_stored_count", 0), labels)
-                await self.kv_blocks_removed.inc(event_stats.get("block_removed_count", 0), labels)
-                await self.kv_blocks_cleared.inc(event_stats.get("all_blocks_cleared_count", 0), labels)
-                await self.kv_tokens_processed.inc(event_stats.get("total_tokens_processed", 0), labels)
-
-        # 更新请求指标
-        if "request_stats" in data:
-            req_stats = data["request_stats"]
-
-            await self.pending_requests.set(
-                req_stats.get("pending_requests", 0),
-                labels
-            )
-
-            await self.active_requests.set(
-                req_stats.get("active_requests", 0),
-                labels
-            )
-
-            # 计数器增量更新逻辑
-            if url in self.process_metrics and "request_stats" in self.process_metrics[url]:
-                old_req_stats = self.process_metrics[url]["request_stats"]
-
-                completed_inc = req_stats.get("completed_requests", 0) - old_req_stats.get("completed_requests", 0)
-                failed_inc = req_stats.get("failed_requests", 0) - old_req_stats.get("failed_requests", 0)
-
-                if completed_inc > 0:
-                    await self.completed_requests.inc(completed_inc, labels)
-                if failed_inc > 0:
-                    await self.failed_requests.inc(failed_inc, labels)
-            else:
-                # 首次获取，直接设置
-                await self.completed_requests.inc(req_stats.get("completed_requests", 0), labels)
-                await self.failed_requests.inc(req_stats.get("failed_requests", 0), labels)
-
-            # 更新平均时间指标
-            await self.avg_ttft.set(
-                req_stats.get("avg_ttft", 0),
-                labels
-            )
-
-            await self.avg_latency.set(
-                req_stats.get("avg_latency", 0),
-                labels
-            )
-
-        # 保存最新抓取的指标
-        self.process_metrics[url] = data
-
-    async def collect(self) -> Dict[str, Any]:
-        """异步收集所有业务进程指标"""
-        results = {}
+        all_metrics = []
 
         # 并发抓取所有端点
         tasks = []
         for endpoint in self.endpoints:
-            task = asyncio.create_task(self._scrape_endpoint(endpoint))
-            tasks.append((endpoint, task))
+            task = self._scrape_endpoint(endpoint)
+            tasks.append(task)
 
-        # 等待所有任务完成
-        for endpoint, task in tasks:
-            try:
-                data = await task
-                if data:
-                    # 更新指标
-                    await self._update_metrics_from_scraped_data(endpoint, data)
-                    results[endpoint.url] = data
-            except Exception as e:
-                logger.error(f"Error processing metrics from {endpoint.url}: {e}")
+        results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        return results
+        # 处理结果
+        for endpoint, result in zip(self.endpoints, results):
+            if isinstance(result, Exception):
+                logger.error(f"Failed to scrape {endpoint['url']}: {result}")
+                continue
 
-    @property
-    def collection_interval(self) -> float:
-        """收集间隔，秒"""
-        return self._scrape_interval
+            all_metrics.extend(result)
+
+        return all_metrics
+
+    async def _scrape_endpoint(self, endpoint: CollectedEndpoint) -> List[MetricValue]:
+        """
+        从单个业务端点抓取指标
+
+        Args:
+            endpoint: 端点配置，包含url和name
+
+        Returns:
+            指标列表
+        """
+        metrics_url = endpoint.address.rstrip('/') + '/api/v1/metrics'
+        instance_name = endpoint.instance_name
+
+        try:
+            async with self._session.get(metrics_url) as response:
+                if response.status != 200:
+                    raise Exception(f"HTTP {response.status}: {await response.text()}")
+
+                # 获取JSON格式的指标数据
+                data = await response.json()
+
+                # 解析指标
+                return self._parse_runtime_metrics(data, instance_name)
+
+        except asyncio.TimeoutError:
+            logger.error(f"Timeout scraping {metrics_url}")
+            raise
+        except Exception as e:
+            logger.error(f"Error scraping {metrics_url}: {e}")
+            raise
+
+    def _parse_runtime_metrics(self, data: Dict[str, Any], instance_name: str) -> List[MetricValue]:
+        """
+        解析业务系统的指标数据
+
+        Args:
+            data: 业务系统返回的指标数据
+            instance_name: 实例名称
+
+        Returns:
+            指标列表
+        """
+        metrics = []
+        base_labels = {'instance': instance_name}
+
+        # 解析KV缓存事件指标
+        if 'kv_events_stats' in data:
+            event_stats = data['kv_events_stats']
+
+            # 块存储计数（Counter），总共存储了多少个Block，聚合值，递增值
+            metrics.append(MetricValue(
+                name='runtime_kv_blocks_stored_total',
+                value=event_stats.get('block_stored_count', 0),
+                metric_type=MetricType.COUNTER,
+                labels=base_labels.copy(),
+                description='Total number of KV blocks stored',
+                unit='blocks'
+            ))
+
+            # 块移除计数（Counter），总共移除了多少个Block，聚合值，递增值
+            metrics.append(MetricValue(
+                name='runtime_kv_blocks_removed_total',
+                value=event_stats.get('block_removed_count', 0),
+                metric_type=MetricType.COUNTER,
+                labels=base_labels.copy(),
+                description='Total number of KV blocks removed',
+                unit='blocks'
+            ))
+
+            # 当前实例持有的Block总数，非递增，大于等于0
+            metrics.append(MetricValue(
+                name='runtime_kv_blocks_count',
+                value=event_stats.get('blocks_count', {}).get(instance_name, 0),
+                metric_type=MetricType.GAUGE,
+                labels=base_labels.copy(),
+                description='Current blocks count per instance',
+                unit='blocks'
+            ))
+
+            # 当前实例处理的Token总数，递增值
+            metrics.append(MetricValue(
+                name='runtime_precessed_tokens_count',
+                value=event_stats.get('processed_tokens_count', {}).get(instance_name, 0),
+                metric_type=MetricType.COUNTER,
+                labels=base_labels.copy(),
+                description='Processed tokens count per instance',
+                unit='tokens'
+            ))
+
+            # 活跃块数量（Gauge），所有实例的聚合指标
+            metrics.append(MetricValue(
+                name='runtime_kv_active_blocks',
+                value=event_stats.get('active_blocks_count', 0),
+                metric_type=MetricType.GAUGE,
+                labels=base_labels.copy(),
+                description='Current number of active KV blocks',
+                unit='blocks'
+            ))
+
+            # 处理的token总数（Counter），所有实例的聚合指标
+            metrics.append(MetricValue(
+                name='runtime_processed_tokens_total',
+                value=event_stats.get('processed_tokens_total', 0),
+                metric_type=MetricType.COUNTER,
+                labels=base_labels.copy(),
+                description='Total number of tokens processed',
+                unit='tokens'
+            ))
+
+            # 运行时间（Gauge）
+            metrics.append(MetricValue(
+                name='runtime_kv_uptime_seconds',
+                value=event_stats.get('uptime', 0),
+                metric_type=MetricType.GAUGE,
+                labels=base_labels.copy(),
+                description='Time since KV cache system started',
+                unit='seconds'
+            ))
+
+        # 解析请求相关指标
+        if 'requests_stats' in data:
+            req_stats = data['requests_stats']
+
+            # 待处理请求数（Gauge）
+            metrics.append(MetricValue(
+                name='runtime_requests_pending',
+                value=req_stats.get('pending_requests', 0),
+                metric_type=MetricType.GAUGE,
+                labels=base_labels.copy(),
+                description='Number of pending requests',
+                unit='requests'
+            ))
+
+            # 活跃请求数（Gauge）
+            metrics.append(MetricValue(
+                name='runtime_requests_active',
+                value=req_stats.get('active_requests', 0),
+                metric_type=MetricType.GAUGE,
+                labels=base_labels.copy(),
+                description='Number of active requests',
+                unit='requests'
+            ))
+
+            # 完成的请求数（Counter）
+            metrics.append(MetricValue(
+                name='runtime_requests_completed_total',
+                value=req_stats.get('completed_requests', 0),
+                metric_type=MetricType.COUNTER,
+                labels=base_labels.copy(),
+                description='Total number of completed requests',
+                unit='requests'
+            ))
+
+            # 失败的请求数（Counter）
+            metrics.append(MetricValue(
+                name='runtime_requests_failed_total',
+                value=req_stats.get('failed_requests', 0),
+                metric_type=MetricType.COUNTER,
+                labels=base_labels.copy(),
+                description='Total number of failed requests',
+                unit='requests'
+            ))
+
+            # 平均首个token时间（Gauge）
+            metrics.append(MetricValue(
+                name='runtime_avg_time_to_first_token_seconds',
+                value=req_stats.get('avg_ttft', 0),
+                metric_type=MetricType.GAUGE,
+                labels=base_labels.copy(),
+                description='Average time to first token',
+                unit='seconds'
+            ))
+
+            # 平均请求延迟（Gauge）
+            metrics.append(MetricValue(
+                name='runtime_avg_request_latency_seconds',
+                value=req_stats.get('avg_latency', 0),
+                metric_type=MetricType.GAUGE,
+                labels=base_labels.copy(),
+                description='Average request latency',
+                unit='seconds'
+            ))
+
+            # 每分钟请求数（Gauge）
+            metrics.append(MetricValue(
+                name='runtime_requests_per_minute',
+                value=req_stats.get('requests_per_minute', 0),
+                metric_type=MetricType.GAUGE,
+                labels=base_labels.copy(),
+                description='Requests per minute rate',
+                unit='rpm'
+            ))
+
+        # 处理Counter类型指标的增量
+        self._process_counter_increments(metrics, instance_name)
+
+        return metrics
+
+    def _process_counter_increments(self, metrics: List[MetricValue], instance_name: str):
+        """
+        处理Counter类型指标，确保它们只增不减
+
+        Args:
+            metrics: 指标列表
+            instance_name: 实例名称
+        """
+        current_values = {}
+
+        # 收集当前值
+        for metric in metrics:
+            if metric.metric_type == MetricType.COUNTER:
+                key = f"{instance_name}:{metric.name}"
+                current_values[key] = metric.value
+
+        # 与上次值比较，处理重置情况
+        if instance_name in self._last_values:
+            last_values = self._last_values[instance_name]
+
+            for metric in metrics:
+                if metric.metric_type == MetricType.COUNTER:
+                    key = f"{instance_name}:{metric.name}"
+                    if key in last_values:
+                        last_value = last_values[key]
+                        current_value = metric.value
+
+                        # 如果当前值小于上次值，说明可能发生了重置
+                        if current_value < last_value:
+                            logger.warning(
+                                f"Counter {metric.name} reset detected for {instance_name}: "
+                                f"{last_value} -> {current_value}"
+                            )
+                            # Counter重置时，我们仍然使用当前值
+                            # 因为这是新的计数起点
+
+        # 保存当前值供下次比较
+        self._last_values[instance_name] = current_values

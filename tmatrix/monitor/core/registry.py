@@ -1,189 +1,117 @@
+"""
+指标注册中心
+统一管理所有收集器收集到的指标
+"""
 import asyncio
-import json
 import time
-import logging
-from typing import Dict, List, Any, Optional, Set
+from typing import Dict, List, Any
+from collections import defaultdict
 
-from .metric_core import MetricValue, MetricCollector, MetricBackend, Singleton
-from .metric_types import Counter, Gauge, Histogram, Summary, Timer
+from .base import MetricValue
 
-logger = logging.getLogger('metrics_system')
+from tmatrix.common.logging import init_logger
+logger = init_logger("monitor/core")
 
 
-@Singleton
 class MetricRegistry:
-    """指标注册中心，统一管理所有指标"""
+    """
+    指标注册中心（单例模式）
+    负责存储和管理所有收集到的指标
+    """
+    _instance = None
+    _lock = asyncio.Lock()
 
-    def __init__(self, default_namespace: str = ""):
-        self.default_namespace = default_namespace
-        self._metrics: Dict[str, MetricValue] = {}
-        self._collectors: List[MetricCollector] = []
-        self._backends: List[MetricBackend] = []
-        self._lock = asyncio.Lock()
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super(MetricRegistry, cls).__new__(cls)
+            cls._instance._initialized = False
+        return cls._instance
 
-    async def register_metric(self, metric: MetricValue) -> MetricValue:
-        """异步注册一个指标"""
-        full_name = f"{self.default_namespace}_{metric.name}" if self.default_namespace else metric.name
+    def __init__(self):
+        if self._initialized:
+            return
 
-        async with self._lock:
-            if full_name in self._metrics:
-                return self._metrics[full_name]
+        # 按收集器名称分组存储指标
+        self._metrics: Dict[str, List[MetricValue]] = defaultdict(list)
 
-            # 将指标注册到所有后端
-            for backend in self._backends:
-                await backend.register_metric(metric)
+        # 指标更新时间戳
+        self._update_times: Dict[str, float] = {}
 
-            self._metrics[full_name] = metric
-            return metric
+        # 保护并发访问的锁
+        self._metrics_lock = asyncio.Lock()
 
-    # 同步版本，方便在初始化阶段使用
-    def register_metric_sync(self, metric: MetricValue) -> MetricValue:
-        """同步注册一个指标（为非异步环境提供）"""
-        full_name = f"{self.default_namespace}_{metric.name}" if self.default_namespace else metric.name
+        self._initialized = True
+        logger.info("MetricRegistry initialized")
 
-        if full_name in self._metrics:
-            return self._metrics[full_name]
+    async def update_metrics(self, collector_name: str, metrics: List[MetricValue]):
+        """
+        更新指定收集器的指标
 
-        self._metrics[full_name] = metric
-        return metric
+        Args:
+            collector_name: 收集器名称
+            metrics: 指标列表
+        """
+        async with self._metrics_lock:
+            # 替换该收集器的所有指标（而不是追加）
+            self._metrics[collector_name] = metrics
+            self._update_times[collector_name] = time.time()
 
-    async def register_collector(self, collector: MetricCollector) -> None:
-        """异步注册一个指标收集器"""
-        async with self._lock:
-            collector.registry = self
-            self._collectors.append(collector)
-            await collector.start()
+            logger.debug(f"Updated {len(metrics)} metrics from collector {collector_name}")
 
-    # 同步版本
-    def register_collector_sync(self, collector: MetricCollector) -> None:
-        """同步注册一个指标收集器"""
-        collector.registry = self
-        self._collectors.append(collector)
+    async def get_all_metrics(self) -> Dict[str, List[MetricValue]]:
+        """
+        获取所有指标
 
-    async def register_backend(self, backend: MetricBackend) -> None:
-        """异步注册一个指标后端"""
-        async with self._lock:
-            self._backends.append(backend)
+        Returns:
+            按收集器名称分组的指标字典
+        """
+        async with self._metrics_lock:
+            # 返回深拷贝，避免外部修改
+            return dict(self._metrics)
 
-            # 将所有已注册的指标注册到新后端
-            for metric in self._metrics.values():
-                await backend.register_metric(metric)
+    async def get_collector_metrics(self, collector_name: str) -> List[MetricValue]:
+        """
+        获取指定收集器的指标
 
-            await backend.start()
+        Args:
+            collector_name: 收集器名称
 
-    # 同步版本
-    def register_backend_sync(self, backend: MetricBackend) -> None:
-        """同步注册一个指标后端"""
-        self._backends.append(backend)
+        Returns:
+            指标列表
+        """
+        async with self._metrics_lock:
+            return self._metrics.get(collector_name, []).copy()
 
-    async def get_metric(self, name: str) -> Optional[MetricValue]:
-        """异步获取指定名称的指标"""
-        full_name = f"{self.default_namespace}_{name}" if self.default_namespace else name
-        async with self._lock:
-            return self._metrics.get(full_name)
+    async def get_metric_by_name(self, metric_name: str) -> List[MetricValue]:
+        """
+        根据指标名称获取所有匹配的指标
 
-    # 同步版本
-    def get_metric_sync(self, name: str) -> Optional[MetricValue]:
-        """同步获取指定名称的指标"""
-        full_name = f"{self.default_namespace}_{name}" if self.default_namespace else name
-        return self._metrics.get(full_name)
+        Args:
+            metric_name: 指标名称
 
-    async def get_all_metrics(self) -> Dict[str, MetricValue]:
-        """异步获取所有注册的指标"""
-        async with self._lock:
-            return self._metrics.copy()
+        Returns:
+            匹配的指标列表
+        """
+        async with self._metrics_lock:
+            result = []
+            for metrics in self._metrics.values():
+                for metric in metrics:
+                    if metric.name == metric_name:
+                        result.append(metric)
+            return result
 
-    async def export_all_metrics(self) -> None:
-        """异步将所有指标导出到所有后端"""
-        metrics = await self.get_all_metrics()
-        for backend in self._backends:
-            await backend.export_metrics(metrics)
+    async def clear(self):
+        """清空所有指标"""
+        async with self._metrics_lock:
+            self._metrics.clear()
+            self._update_times.clear()
+            logger.info("Cleared all metrics from registry")
 
-    async def clear_all_metrics(self) -> None:
-        """异步清除所有指标的值"""
-        async with self._lock:
-            for metric in self._metrics.values():
-                await metric.clear()
-
-    async def start_all(self) -> None:
-        """异步启动所有收集器和后端"""
-        async with self._lock:
-            # 启动所有收集器
-            for collector in self._collectors:
-                await collector.start()
-
-            # 启动所有后端
-            for backend in self._backends:
-                # 注册所有指标到后端
-                for metric in self._metrics.values():
-                    await backend.register_metric(metric)
-
-                await backend.start()
-
-    async def stop_all(self) -> None:
-        """异步关闭所有收集器和后端"""
-        async with self._lock:
-            # 停止所有收集器
-            for collector in self._collectors:
-                await collector.stop()
-
-            # 停止所有后端
-            for backend in self._backends:
-                await backend.stop()
-
-    async def to_dict(self) -> Dict[str, Any]:
-        """异步将整个注册中心转换为字典表示"""
-        async with self._lock:
-            metrics_dict = {}
-            for name, metric in self._metrics.items():
-                metrics_dict[name] = await metric.to_dict()
-
-            return {
-                "metrics": metrics_dict,
-                "collectors": [collector.__class__.__name__ for collector in self._collectors],
-                "backends": [backend.__class__.__name__ for backend in self._backends]
-            }
-
-
-# 工厂函数，获取全局注册中心
-def get_metric_registry(namespace: str = ""):
-    """获取或创建全局指标注册中心"""
-    return MetricRegistry(namespace)
-
-
-# 辅助函数，用于创建不同类型的指标
-def create_counter(name: str, description: str, label_names: List[str] = None) -> Counter:
-    """创建计数器指标"""
-    counter = Counter(name, description, label_names)
-    registry = get_metric_registry()
-    return registry.register_metric_sync(counter)
-
-
-def create_gauge(name: str, description: str, label_names: List[str] = None) -> Gauge:
-    """创建仪表盘指标"""
-    gauge = Gauge(name, description, label_names)
-    registry = get_metric_registry()
-    return registry.register_metric_sync(gauge)
-
-
-def create_histogram(name: str, description: str, buckets: List[float] = None,
-                     label_names: List[str] = None) -> Histogram:
-    """创建直方图指标"""
-    histogram = Histogram(name, description, buckets, label_names)
-    registry = get_metric_registry()
-    return registry.register_metric_sync(histogram)
-
-
-def create_summary(name: str, description: str, label_names: List[str] = None) -> Summary:
-    """创建摘要指标"""
-    summary = Summary(name, description, label_names)
-    registry = get_metric_registry()
-    return registry.register_metric_sync(summary)
-
-
-def create_timer(name: str, description: str, buckets: List[float] = None,
-                 label_names: List[str] = None) -> Timer:
-    """创建计时器指标"""
-    timer = Timer(name, description, buckets, label_names)
-    registry = get_metric_registry()
-    return registry.register_metric_sync(timer)
+    def get_stats(self) -> Dict[str, Any]:
+        """获取注册中心的统计信息"""
+        total_metrics = sum(len(metrics) for metrics in self._metrics.values())
+        return {
+            "total_collectors": len(self._metrics),
+            "total_metrics": total_metrics,
+            "update_times": dict(self._update_times)
+        }

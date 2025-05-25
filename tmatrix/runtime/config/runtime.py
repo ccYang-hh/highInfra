@@ -188,13 +188,12 @@ class RuntimeConfig:
     etcd: Optional[ETCDConfig] = None
 
     # 性能配置
-    worker_threads: int = 8
-    max_batch_size: int = 32
+    max_batch_size: int = 128
     request_timeout: int = 60
 
     # 监控配置
-    enable_metrics: bool = True
-    metrics_port: int = 8001
+    enable_monitor: bool = True
+    monitor_config: str = field(default_factory=str)
 
     # 安全配置
     enable_auth: bool = False

@@ -1,0 +1,45 @@
+{
+  "collectors": [
+    {
+      "type": "vllm",
+      "enabled": true,
+      "scrape_interval": 5.0,
+      "endpoints": [
+        {
+          "address": "http://172.17.111.150:8002",
+          "instance_name": "vllm-worker-1"
+        },
+        {
+          "address": "http://172.17.111.150:8003",
+          "instance_name": "vllm-worker-2"
+        }
+      ]
+    },
+    {
+      "type": "runtime",
+      "enabled": true,
+      "scrape_interval": 5.0,
+      "endpoints": [
+        {
+          "address": "http://172.17.111.150:8009",
+          "instance_name": "runtime"
+        }
+      ]
+    }
+  ],
+  "exporters": [
+    {
+      "type": "prometheus",
+      "enabled": true,
+      "export_interval": 10.0,
+      "extra": {
+        "port": 8090,
+        "host": "0.0.0.0",
+        "path": "/metrics"
+      }
+    }
+  ],
+  "http_enabled": true,
+  "http_host": "0.0.0.0",
+  "http_port": 8088
+}

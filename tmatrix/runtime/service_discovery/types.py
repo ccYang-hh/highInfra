@@ -25,8 +25,8 @@ class EndpointType(Enum):
 
 
 class EndpointStatus(Enum):
-    HEALTHY = 0
-    UNHEALTHY = 1
+    HEALTHY = "healthy"
+    UNHEALTHY = "unhealthy"
 
 
 class KVRole(Enum):
@@ -37,14 +37,15 @@ class KVRole(Enum):
 
 @dataclass
 class KVEventsConfig:
-    enable_kv_cache_events: bool = False
-    publisher: str = "null"
+    # enable_kv_cache_events: bool = False
+    publisher: str = "zmq"
     endpoint: str = "tcp://*:5557"
     replay_endpoint: Optional[str] = None
-    buffer_steps: int = 10_000
-    hwm: int = 100_000
-    max_queue_size: int = 100_000
-    topic: str = ""
+    # 以下参数可默认不暴露可配置
+    # buffer_steps: int = 10_000
+    # hwm: int = 100_000
+    # max_queue_size: int = 100_000
+    # topic: str = ""
 
 
 # 高性能端点信息，保持轻量
@@ -56,11 +57,12 @@ class Endpoint:
     model_name: str                # 当前主服务模型
     priority: int = 0                 # 优先级，可用于负载均衡
     kv_role: KVRole = KVRole.BOTH     # KV角色
+    instance_name: Optional[str] = None  # 当前实例名称/ID, 标识符
     transport_type: TransportType = TransportType.HTTP  # 传输类型
     status: EndpointStatus = EndpointStatus.UNHEALTHY   # 端点健康状态
-    endpoint_type: List[EndpointType] = field(default_factory=list)   # 端点服务类型
-    added_timestamp: float = field(default_factory=lambda: time.time())  # 添加时间
-    event_config: KVEventsConfig = KVEventsConfig()         # KVEvent配置
+    endpoint_type: List[EndpointType] = field(default_factory=list)    # 端点服务类型
+    kv_event_config: KVEventsConfig = field(default_factory=lambda: KVEventsConfig())  # KVEvent配置
+    added_timestamp: float = field(default_factory=lambda: time.time())                # 添加时间
     metadata: Dict[str, Any] = field(default_factory=dict)  # 元数据
 
 

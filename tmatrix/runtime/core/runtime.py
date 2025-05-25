@@ -12,6 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 
 from tmatrix.common.logging import init_logger
+from tmatrix.monitor.integrated import MonitorProcess
 from tmatrix.runtime.service_discovery import get_etcd_service_discovery
 from tmatrix.runtime.pipeline import Pipeline, PipelineBuilder, PipelineBuilderConfig
 from tmatrix.runtime.plugins import PluginManager
@@ -68,6 +69,8 @@ class RuntimeCore:
 
         self.pipelines: Dict[str, Pipeline] = {}
 
+        self.monitor: Optional[MonitorProcess] = None
+
         # 运行状态
         self._is_initialized = False
         self._startup_time = None
@@ -96,11 +99,16 @@ class RuntimeCore:
         # 应用所有路由
         self._setup_routes()
 
-        # 标记为已初始化
-        self._is_initialized = True
-
         # 注册全局state
         self.set_app_state()
+
+        # 拉起监控器
+        if self.config.enable_monitor:
+            self.monitor = MonitorProcess(self.config.monitor_config)
+            self.monitor.start()
+
+        # 标记为已初始化
+        self._is_initialized = True
 
         logger.info(f"{self.config.app_name} 初始化成功")
 
@@ -111,11 +119,11 @@ class RuntimeCore:
 
         # 2.条件判断，启用了vLLM Router时，才拉起PrefixCaching服务
         if self.plugin_manager.get_plugin("vllm_router") is not None:
-            from tmatrix.runtime.services.prefix_cache import PrefixCacheService
-            prefix_cache_service = PrefixCacheService()
+            from tmatrix.runtime.services import get_prefix_cache_service, PrefixCacheService
+            prefix_cache_service: PrefixCacheService = get_prefix_cache_service()
             self.app.state.prefix_cache = prefix_cache_service  # type: ignore
             # 开启订阅
-            self.app.state.prefix_cache.start()                 # type: ignore
+            self.app.state.prefix_cache.start()  # type: ignore
 
         # 3.注册其它组件
         self.app.state.runtime = self               # type: ignore
@@ -131,6 +139,8 @@ class RuntimeCore:
             return
 
         logger.info("关闭系统...")
+
+        self.monitor.stop()
 
         # 关闭插件
         if self.plugin_manager:
