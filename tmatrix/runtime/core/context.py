@@ -33,7 +33,7 @@ class RequestContext:
     作为处理管道中各阶段之间交流的媒介，包含请求的所有相关信息
     """
     # 基本标识信息
-    request_id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    request_id: str = field(default_factory=lambda: str)
     creation_time: float = field(default_factory=time.time)
     last_updated_time: float = field(default_factory=time.time)
     state: RequestState = RequestState.INITIALIZED
@@ -48,6 +48,10 @@ class RequestContext:
     # 请求内容
     raw_body: bytes = field(default_factory=lambda: bytes())
     parsed_body: Dict[str, Any] = field(default_factory=dict)
+
+    # 请求标识：first_time、history、rag
+    request_type: str = field(default_factory=str)
+    request_identifiers: Optional[Dict[str, str]] = field(default_factory=dict)
 
     # 模型信息
     model_name: Optional[str] = None

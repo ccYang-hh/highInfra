@@ -10,16 +10,7 @@ from tmatrix.runtime.pipeline import PipelineStage
 from tmatrix.runtime.plugins import Plugin
 from tmatrix.runtime.core import RequestContext, RequestState
 
-logger = init_logger("plugins/request_type_analyzer")
-
-
-class OpenAIRequestTypeAnalyzer(PipelineStage):
-    def __init__(self, stage_name: str):
-        """初始化流处理阶段"""
-        super().__init__(stage_name)
-
-    async def process(self, context: RequestContext) -> None:
-        pass
+logger = init_logger("plugins/request_analyzer")
 
 
 @dataclass
@@ -43,7 +34,7 @@ class OpenAIRequestAnalyzer:
     def __init__(self):
         self.session_store = {}  # 简单的会话存储
 
-    def analyze_request(self, request_data: Dict) -> Dict[str, Any]:
+    async def analyze_request(self, request_data: Dict) -> Dict[str, Any]:
         """
         分析OpenAI API请求并返回详细信息
 
@@ -55,7 +46,7 @@ class OpenAIRequestAnalyzer:
         """
         result = {
             "request_type": self._determine_request_type(request_data),
-            "session_info": self._extract_session_info(request_data),
+            "identifiers": self._extract_identifiers(request_data),
             "rag_info": None
         }
 
@@ -79,6 +70,9 @@ class OpenAIRequestAnalyzer:
         assistant_messages = [msg for msg in messages if msg.get("role") == "assistant"]
 
         if len(assistant_messages) == 0 and len(user_messages) == 1:
+            return "first_time"
+        # Completion等非Chat场景
+        elif len(assistant_messages) == 0 and len(user_messages) == 0:
             return "first_time"
         else:
             return "history"
@@ -136,7 +130,8 @@ class OpenAIRequestAnalyzer:
             "chunks": chunks
         }
 
-    def _extract_chunks_from_tools(self, request_data: Dict) -> List[RAGChunk]:
+    @staticmethod
+    def _extract_chunks_from_tools(request_data: Dict) -> List[RAGChunk]:
         """从工具调用或函数调用中提取RAG块"""
         chunks = []
         messages = request_data.get("messages", [])
@@ -172,7 +167,8 @@ class OpenAIRequestAnalyzer:
 
         return chunks
 
-    def _extract_metadata(self, chunk_text: str) -> Dict[str, Any]:
+    @staticmethod
+    def _extract_metadata(chunk_text: str) -> Dict[str, Any]:
         """
         尝试从块文本中提取元数据
         """
@@ -190,7 +186,7 @@ class OpenAIRequestAnalyzer:
 
         return metadata
 
-    def _extract_session_info(self, request_data: Dict) -> Dict:
+    def _extract_identifiers(self, request_data: Dict) -> Dict:
         """
         提取用户会话信息
         """
@@ -199,59 +195,41 @@ class OpenAIRequestAnalyzer:
         session_id = headers.get("x-session-id")
 
         # 如果请求头中没有会话ID，则查找或创建
+        is_new_session = False
         if not session_id:
-            user_id = self._extract_user_id(request_data)
-            if user_id in self.session_store:
-                session_id = self.session_store[user_id]
+            session_id = request_data.get("session_id", "")
+            if session_id:
+                if session_id not in self.session_store:
+                    is_new_session = True
+                    self.session_store[session_id] = session_id
             else:
+                is_new_session = True
                 session_id = str(uuid.uuid4())
-                self.session_store[user_id] = session_id
+                self.session_store[session_id] = session_id
+
+        chat_id = request_data.get("chat_id", "")
+        if not chat_id:
+            chat_id = str(uuid.uuid4())
+
+        request_id = request_data.get("request_id", "")
+        if not chat_id:
+            request_id = str(uuid.uuid4())
 
         return {
+            "chat_id": chat_id,
+            "request_id": request_id,
             "session_id": session_id,
-            "user_id": self._extract_user_id(request_data),
-            "is_new_session": session_id not in self.session_store.values()
+            "is_new_session": is_new_session,
         }
 
-    def _extract_user_id(self, request_data: Dict) -> str:
-        """
-        从请求中提取用户ID，如果没有则生成一个
-        """
-        # 尝试从请求头获取用户ID
-        headers = request_data.get("headers", {})
-        user_id = headers.get("x-user-id")
 
-        if not user_id:
-            # 尝试从请求体获取用户ID
-            user_id = request_data.get("user", "")
+class RequestTypeAnalyzer(PipelineStage):
+    def __init__(self, stage_name: str):
+        """初始化流处理阶段"""
+        super().__init__(stage_name)
+        self.openai_request_type_analyzer = OpenAIRequestAnalyzer()
 
-        if not user_id:
-            # 如果仍然没有用户ID，则生成一个基于请求特征的唯一标识
-            messages = request_data.get("messages", [])
-            if messages:
-                # 使用第一条消息的某些特征
-                first_message = messages[0]
-                content_hash = hash(first_message.get("content", ""))
-                user_id = f"anonymous-{content_hash}"
-            else:
-                user_id = f"anonymous-{uuid.uuid4()}"
-
-        return user_id
-
-
-# 示例用法
-def process_openai_request(request_data):
-    analyzer = OpenAIRequestAnalyzer()
-    analysis_result = analyzer.analyze_request(request_data)
-
-    print(f"请求类型: {analysis_result['request_type']}")
-    print(f"会话信息: {analysis_result['session_info']}")
-
-    if analysis_result['rag_info']:
-        print(f"RAG块数量: {analysis_result['rag_info']['chunk_count']}")
-        for i, chunk in enumerate(analysis_result['rag_info']['chunks']):
-            print(f"RAG块 {i + 1}:")
-            print(f"  内容: {chunk.content[:50]}...")
-            print(f"  元数据: {chunk.metadata}")
-
-    return analysis_result
+    async def process(self, context: RequestContext) -> None:
+        analysis_data = await self.openai_request_type_analyzer.analyze_request(context.parsed_body)
+        context.request_type = analysis_data['request_type']
+        context.request_identifiers = analysis_data['identifiers']

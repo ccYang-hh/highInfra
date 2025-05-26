@@ -86,7 +86,6 @@ class Plugin(Generic[T], ABC):
         # 子类特定的初始化逻辑
         await self._on_initialize()
 
-    @abstractmethod
     async def _on_initialize(self) -> None:
         """
         插件特定的初始化逻辑（由子类实现）
@@ -106,7 +105,6 @@ class Plugin(Generic[T], ABC):
         self._initialized = False
         self.config = None
 
-    @abstractmethod
     async def _on_shutdown(self) -> None:
         """
         插件特定的关闭逻辑（由子类实现）

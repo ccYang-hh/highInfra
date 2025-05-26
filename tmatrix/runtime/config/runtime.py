@@ -2,7 +2,6 @@ import copy
 import asyncio
 import threading
 from pathlib import Path
-from http import HTTPMethod
 from dataclasses import dataclass, field, asdict, fields
 from typing import Any, Dict, List, get_type_hints, Tuple, Optional, Callable
 
@@ -11,7 +10,6 @@ from tmatrix.common.errors import AppError
 from tmatrix.runtime.service_discovery import ServiceDiscoveryType
 from tmatrix.runtime.utils import ConfigEvent, EventBus
 from tmatrix.runtime.config import ConfigValidator, FileConfigSource
-from tmatrix.common.logging import init_logger
 
 logger = init_logger("runtime/config")
 
@@ -123,7 +121,7 @@ class PluginRegistryConfig:
 @dataclass
 class PipelineRoute:
     path: str
-    method: HTTPMethod
+    method: str
 
 
 @dataclass
@@ -142,7 +140,7 @@ class PipelineConfig:
         routes = [
             PipelineRoute(
                 path=route["path"],
-                method=HTTPMethod(route["method"])
+                method=route["method"]
             )
             for route in data.get("routes", [])
         ]

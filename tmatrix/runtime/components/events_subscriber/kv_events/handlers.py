@@ -1,4 +1,3 @@
-import concurrent.futures
 import threading
 from abc import ABC, abstractmethod
 from collections import defaultdict
@@ -314,47 +313,20 @@ class PrefixCacheFinder(KVEventHandlerBase):
         self.block_registry = BlockRegistry()
         self.token_index = TokenSequenceIndex()
 
-        # 线程池，用于并行处理事件
-        self.executor = concurrent.futures.ThreadPoolExecutor(
-            max_workers=4,
-            thread_name_prefix="prefix-cache-worker"
-        )
-
-        # 用于等待所有任务完成的Future集合
-        self.pending_tasks = set()
-        self.tasks_lock = threading.Lock()
-
     def process_event_batch(self, event_batch: KVEventBatch, instance_id: str) -> None:
         """处理事件批次"""
         for event in event_batch.events:
             if isinstance(event, BlockStored):
-                self._submit_task(self.on_block_stored, event, instance_id, event_batch.ts)
+                self.on_block_stored(event, instance_id, event_batch.ts)
                 self.stats.update_on_block_stored(event, instance_id)
             elif isinstance(event, BlockRemoved):
-                self._submit_task(self.on_block_removed, event, instance_id)
+                self.on_block_removed(event, instance_id)
                 self.stats.update_on_block_removed(event, instance_id)
             elif isinstance(event, AllBlocksCleared):
-                self._submit_task(self.on_all_blocks_cleared, instance_id)
+                self.on_all_blocks_cleared(instance_id)
                 self.stats.update_on_all_blocks_cleared(instance_id)
 
         self.stats.print_stats()
-
-    def _submit_task(self, func, *args):
-        """提交任务到线程池，并跟踪其完成情况"""
-        with self.tasks_lock:
-            future = self.executor.submit(func, *args)
-            self.pending_tasks.add(future)
-            future.add_done_callback(self._task_done)
-
-    def _task_done(self, future):
-        """任务完成回调"""
-        with self.tasks_lock:
-            self.pending_tasks.remove(future)
-            # 检查任务是否有异常
-            try:
-                future.result()
-            except Exception as e:
-                logger.error(f"任务执行出错: {e}", exc_info=True)
 
     def on_block_stored(self, event: BlockStored, instance_id: str, timestamp: float) -> None:
         """块存储事件处理"""
@@ -476,22 +448,6 @@ class PrefixCacheFinder(KVEventHandlerBase):
 
         return results
 
-    def wait_for_all_tasks(self, timeout: Optional[float] = None) -> bool:
-        """等待所有挂起的任务完成"""
-        with self.tasks_lock:
-            futures = list(self.pending_tasks)
-
-        if not futures:
-            return True
-
-        done, not_done = concurrent.futures.wait(
-            futures,
-            timeout=timeout,
-            return_when=concurrent.futures.ALL_COMPLETED
-        )
-
-        return len(not_done) == 0
-
     def print_stats(self) -> None:
         """打印当前统计信息"""
         self.stats.print_stats(force=True)
@@ -499,8 +455,6 @@ class PrefixCacheFinder(KVEventHandlerBase):
     def clear(self) -> None:
         """清空所有数据"""
         # 等待所有任务完成
-        self.wait_for_all_tasks(timeout=5.0)
-
         self.block_graph.clear()
         self.block_registry.clear()
         self.token_index.clear()
@@ -508,6 +462,4 @@ class PrefixCacheFinder(KVEventHandlerBase):
 
     def shutdown(self) -> None:
         """关闭查找器，释放资源"""
-        self.wait_for_all_tasks(timeout=5.0)
-        self.executor.shutdown(wait=True)
         self.clear()

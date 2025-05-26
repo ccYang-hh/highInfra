@@ -10,6 +10,7 @@ class SessionStrategy(RouteStrategy):
     """基于会话的路由策略"""
 
     def __init__(self, session_key: str = "x-session-id"):
+        super().__init__()
         self.session_key = session_key
         self.hash_ring = HashRing()
 
@@ -56,9 +57,9 @@ class SessionStrategy(RouteStrategy):
 
         return ret
 
-    async def route_request(
+    async def route_prefill_request(
             self,
-            endpoints: List[Endpoint],
+            endpoints: Dict[str, List[Endpoint]],
             engine_stats: Dict[str, EngineStats],
             request_stats: Dict[str, RequestStats],
             context: RequestContext
@@ -67,17 +68,46 @@ class SessionStrategy(RouteStrategy):
         if not endpoints:
             raise ValueError("No available endpoints for routing")
 
+        prefill_endpoints: List[Endpoint] = endpoints["prefill_instances"]
+        if len(prefill_endpoints) == 0:
+            raise ValueError("No available endpoints for routing")
+
+        # 只有一个Prefill实例时，不需要额外调度
+        if len(prefill_endpoints) == 1:
+            return prefill_endpoints[0].address
+
         # 获取会话ID
         session_id = context.headers.get(self.session_key)
 
         # 更新哈希环
-        self._update_hash_ring(endpoints)
+        self._update_hash_ring(prefill_endpoints)
 
         if not session_id:
             # 如果没有会话ID，则基于QPS路由
-            url = self._qps_routing(endpoints, request_stats)
+            url = self._qps_routing(prefill_endpoints, request_stats)
         else:
             # 使用哈希环获取会话ID的端点
             url = self.hash_ring.get_node(session_id)
 
         return url
+
+    async def route_decode_request(
+            self,
+            endpoints: Dict[str, List[Endpoint]],
+            engine_stats: Dict[str, EngineStats],
+            request_stats: Dict[str, RequestStats],
+            context: RequestContext
+    ) -> str:
+        if not endpoints:
+            raise ValueError("No available endpoints for routing")
+
+        decode_endpoints: List[Endpoint] = endpoints["decode_instances"]
+        if len(decode_endpoints) == 0:
+            raise ValueError("No available endpoints for routing")
+
+        # 只有一个Decode实例时，不需要额外调度
+        if len(decode_endpoints) == 1:
+            return decode_endpoints[0].address
+
+        # Decode实例基于负载均衡调度
+        return decode_endpoints[0].address

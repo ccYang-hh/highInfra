@@ -1,0 +1,33 @@
+{
+  "stream": true,
+  "model": "DeepSeek-R1",
+  "messages": [{
+    "role": "user",
+    "content": "今天天气怎么样？"
+  }, {
+    "role": "assistant",
+    "content": "您好，建议您联网获取时效性较强的信息；如果还有其他问题需要帮助，请随时告诉我！"
+  }, {
+    "role": "user",
+    "content": "我刚才的问题是什么？直接回答我"
+  }],
+  "params": {},
+  "features": {
+    "image_generation": false,
+    "code_interpreter": false,
+    "web_search": false
+  },
+  "variables": {
+    "{{USER_NAME}}": "yh",
+    "{{USER_LOCATION}}": "Unknown",
+    "{{CURRENT_DATETIME}}": "2025-05-26 15:04:58",
+    "{{CURRENT_DATE}}": "2025-05-26",
+    "{{CURRENT_TIME}}": "15:04:58",
+    "{{CURRENT_WEEKDAY}}": "Monday",
+    "{{CURRENT_TIMEZONE}}": "Asia/Shanghai",
+    "{{USER_LANGUAGE}}": "zh-CN"
+  },
+  "session_id": "5k3v1_67dNgCzyl_AABX",
+  "chat_id": "5fb63927-2fd6-46db-b519-931331610261",
+  "id": "9e5e5610-8e2d-4853-8e87-179e2aa9e70e"
+}

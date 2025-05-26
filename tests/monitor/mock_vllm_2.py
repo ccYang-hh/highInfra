@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI, Response
 import random
 import time
 
@@ -11,57 +11,71 @@ counter_state = {
     'start_time': time.time()
 }
 
+# 为每个histogram metric维护全局状态
+histogram_state = {}
+
+histogram_configs = {
+    'time_to_first_token_seconds': [0.001, 0.005, 0.01, 0.02, 0.04, 0.06, 0.08, 0.1, 0.25, 0.5, 0.75, 1.0, 2.5, 5.0,
+                                    7.5, 10.0, 20.0, 40.0, 80.0, 160.0, 640.0, 2560.0],
+    'time_per_output_token_seconds': [0.01, 0.025, 0.05, 0.075, 0.1, 0.15, 0.2, 0.3, 0.4, 0.5, 0.75, 1.0, 2.5, 5.0,
+                                      7.5, 10.0, 20.0, 40.0, 80.0],
+    'e2e_request_latency_seconds': [0.3, 0.5, 0.8, 1.0, 1.5, 2.0, 2.5, 5.0, 10.0, 15.0, 20.0, 30.0, 40.0, 50.0,
+                                    60.0, 120.0, 240.0, 480.0, 960.0, 1920.0, 7680.0],
+    'request_queue_time_seconds': [0.3, 0.5, 0.8, 1.0, 1.5, 2.0, 2.5, 5.0, 10.0, 15.0, 20.0, 30.0, 40.0, 50.0, 60.0,
+                                   120.0, 240.0, 480.0, 960.0, 1920.0, 7680.0],
+    'request_inference_time_seconds': [0.3, 0.5, 0.8, 1.0, 1.5, 2.0, 2.5, 5.0, 10.0, 15.0, 20.0, 30.0, 40.0, 50.0,
+                                       60.0, 120.0, 240.0, 480.0, 960.0, 1920.0, 7680.0],
+    'request_prefill_time_seconds': [0.3, 0.5, 0.8, 1.0, 1.5, 2.0, 2.5, 5.0, 10.0, 15.0, 20.0, 30.0, 40.0, 50.0,
+                                     60.0, 120.0, 240.0, 480.0, 960.0, 1920.0, 7680.0],
+    'request_decode_time_seconds': [0.3, 0.5, 0.8, 1.0, 1.5, 2.0, 2.5, 5.0, 10.0, 15.0, 20.0, 30.0, 40.0, 50.0,
+                                    60.0, 120.0, 240.0, 480.0, 960.0, 1920.0, 7680.0]
+}
+
+def generate_histogram_data(metric_name, buckets):
+    # 初始化全局状态
+    if metric_name not in histogram_state:
+        histogram_state[metric_name] = {
+            'total_count': 0,
+            'bucket_counts': [0 for _ in buckets],
+            'sum_value': 0.0
+        }
+    state = histogram_state[metric_name]
+
+    # 新增一批请求，并用"对数正态分布"生成合理的耗时
+    new_requests = random.randint(1, 10)
+    for _ in range(new_requests):
+        latency = abs(random.lognormvariate(0, 1))  # 正常数据
+        state['sum_value'] += latency
+        state['total_count'] += 1
+        # 累增所有大于等于该latency的bucket
+        for i, bucket in enumerate(buckets):
+            if latency <= bucket:
+                state['bucket_counts'][i] += 1
+
+    samples = []
+    for i, bucket in enumerate(buckets):
+        samples.append(
+            f'vllm:{metric_name}_bucket{{engine="0",le="{bucket}",model_name="qwen"}} {state["bucket_counts"][i]}.0'
+        )
+    samples.append(
+        f'vllm:{metric_name}_bucket{{engine="0",le="+Inf",model_name="qwen"}} {state["total_count"]}.0'
+    )
+    samples.append(
+        f'vllm:{metric_name}_count{{engine="0",model_name="qwen"}} {state["total_count"]}.0'
+    )
+    samples.append(
+        f'vllm:{metric_name}_sum{{engine="0",model_name="qwen"}} {round(state["sum_value"], 6)}'
+    )
+    return samples, state['total_count'], state['sum_value']
 
 @app.get("/metrics")
 async def metrics_handler():
-    """模拟vLLM的metrics端点"""
-
-    # Counter指标 - 模拟递增效果
+    """模拟vLLM的metrics端点（优化、正确递增）"""
     counter_state['prompt_tokens_total'] += random.randint(10, 100)
     counter_state['generation_tokens_total'] += random.randint(5, 50)
-
-    # 生成一些基础的动态数据
     num_running = random.randint(0, 10)
     num_waiting = random.randint(0, 5)
     gpu_cache_usage = round(random.uniform(0.005, 0.9), 6)
-
-    # 直方图配置 - 使用与vLLM相同的bucket配置
-    histogram_configs = {
-        'time_to_first_token_seconds': [0.001, 0.005, 0.01, 0.02, 0.04, 0.06, 0.08, 0.1, 0.25, 0.5, 0.75, 1.0, 2.5, 5.0,
-                                        7.5, 10.0, 20.0, 40.0, 80.0, 160.0, 640.0, 2560.0],
-        'time_per_output_token_seconds': [0.01, 0.025, 0.05, 0.075, 0.1, 0.15, 0.2, 0.3, 0.4, 0.5, 0.75, 1.0, 2.5, 5.0,
-                                          7.5, 10.0, 20.0, 40.0, 80.0],
-        'e2e_request_latency_seconds': [0.3, 0.5, 0.8, 1.0, 1.5, 2.0, 2.5, 5.0, 10.0, 15.0, 20.0, 30.0, 40.0, 50.0,
-                                        60.0, 120.0, 240.0, 480.0, 960.0, 1920.0, 7680.0],
-        'request_queue_time_seconds': [0.3, 0.5, 0.8, 1.0, 1.5, 2.0, 2.5, 5.0, 10.0, 15.0, 20.0, 30.0, 40.0, 50.0, 60.0,
-                                       120.0, 240.0, 480.0, 960.0, 1920.0, 7680.0],
-        'request_inference_time_seconds': [0.3, 0.5, 0.8, 1.0, 1.5, 2.0, 2.5, 5.0, 10.0, 15.0, 20.0, 30.0, 40.0, 50.0,
-                                           60.0, 120.0, 240.0, 480.0, 960.0, 1920.0, 7680.0],
-        'request_prefill_time_seconds': [0.3, 0.5, 0.8, 1.0, 1.5, 2.0, 2.5, 5.0, 10.0, 15.0, 20.0, 30.0, 40.0, 50.0,
-                                         60.0, 120.0, 240.0, 480.0, 960.0, 1920.0, 7680.0],
-        'request_decode_time_seconds': [0.3, 0.5, 0.8, 1.0, 1.5, 2.0, 2.5, 5.0, 10.0, 15.0, 20.0, 30.0, 40.0, 50.0,
-                                        60.0, 120.0, 240.0, 480.0, 960.0, 1920.0, 7680.0]
-    }
-
-    def generate_histogram_data(metric_name, buckets):
-        """生成直方图数据"""
-        samples = []
-        count = random.randint(50, 200)
-        sum_value = round(random.uniform(1.0, 50.0), 6)
-
-        # 生成累积bucket数据
-        cumulative_count = 0
-        for bucket in buckets:
-            cumulative_count += random.randint(0, 20)
-            samples.append(
-                f'vllm:{metric_name}_bucket{{engine="0",le="{bucket}",model_name="qwen"}} {min(cumulative_count, count)}.0')
-
-        # +Inf bucket
-        samples.append(f'vllm:{metric_name}_bucket{{engine="0",le="+Inf",model_name="qwen"}} {count}.0')
-        samples.append(f'vllm:{metric_name}_count{{engine="0",model_name="qwen"}} {count}.0')
-        samples.append(f'vllm:{metric_name}_sum{{engine="0",model_name="qwen"}} {sum_value}')
-
-        return samples, count, sum_value
 
     # 生成所有直方图数据
     histogram_data = {}

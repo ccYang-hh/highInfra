@@ -37,7 +37,7 @@ class MonitorWebServer:
         """设置路由"""
         self._app.router.add_get('/api/v1/monitor/health', self._health_handler)
         self._app.router.add_get('/api/v1/monitor/status', self._status_handler)
-        self._app.router.add_get('/api/v1/monitor/stats', self._stats_handler)
+        self._app.router.add_post('/api/v1/monitor/stats', self._stats_handler)
         self._app.router.add_post('/api/v1/monitor/add_endpoint', self._add_endpoint_handler)
         self._app.router.add_post('/api/v1/monitor/del_endpoint', self._del_endpoint_handler)
 

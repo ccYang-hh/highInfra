@@ -54,4 +54,4 @@ class ConfigValidator:
             # 格式化验证错误
             path = ".".join(str(p) for p in e.path)
             logger.error(f"配置验证错误 {path}: {e.message}")
-            Errors.raise_error(ConfigErrors.SCHEMA_NOT_DEFINITION)
+            Errors.raise_error(ConfigErrors.SCHEMA_VALIDATE_ERROR)

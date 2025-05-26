@@ -47,6 +47,11 @@ class EtcdServiceDiscovery(CachedServiceDiscovery):
         self._watch_thread.start()
         self._leases: Dict[str, "etcd3.Lease"] = {}
 
+        # 初始化时，先强制刷新一次endpoints
+        endpoints = self._fetch_endpoints()
+        self._endpoints = endpoints
+        self._last_update = time.time()
+
     def _fetch_endpoints(self) -> List[Endpoint]:
         """从etcd拉取全部endpoint实例"""
         try:

@@ -38,13 +38,38 @@ class RequestStats:
 class RouteStrategy(abc.ABC):
     """路由策略的基类"""
 
+    def __init__(self):
+        self._initialized = False
+
+    async def initialize(self):
+        await self._initialize()
+        self._initialized = True
+
+    async def _initialize(self):
+        pass
+
     @abc.abstractmethod
-    async def route_request(
+    async def route_prefill_request(
             self,
-            endpoints: List[Endpoint],
+            endpoints: Dict[str, List[Endpoint]],
             engine_stats: Dict[str, EngineStats],
             request_stats: Dict[str, RequestStats],
             context: RequestContext
     ) -> str:
-        """根据路由策略选择合适的后端URL"""
+        """根据路由策略选择合适的Prefill实例URL"""
         pass
+
+    @abc.abstractmethod
+    async def route_decode_request(
+            self,
+            endpoints: Dict[str, List[Endpoint]],
+            engine_stats: Dict[str, EngineStats],
+            request_stats: Dict[str, RequestStats],
+            context: RequestContext
+    ) -> str:
+        """根据路由策略选择合适的Decode实例URL"""
+        pass
+
+    @property
+    def initialized(self):
+        return self._initialized

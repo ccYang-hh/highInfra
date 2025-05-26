@@ -7,16 +7,26 @@
   "log_level": "debug",
   "service_discovery": "etcd",
   "max_batch_size": 128,
+  "request_timeout": 60,
   "enable_monitor": true,
   "monitor_config": "monitor_config.json",
+  "etcd_config": {
+    "host": "70.182.43.96",
+    "port": 2379
+  },
   "plugin_registry": {
     "plugins": {
+      "request_analyzer": {
+        "enabled": true,
+        "module": "tmatrix.runtime.plugins.request_analyzer",
+        "priority": 100
+      },
       "vllm_router": {
         "enabled": true,
         "module": "tmatrix.runtime.plugins.routers.vllm_router",
         "priority": 100
       },
-      "request_stream_processor": {
+      "request_processor": {
         "enabled": true,
         "module": "tmatrix.runtime.plugins.request_processor",
         "priority": 100

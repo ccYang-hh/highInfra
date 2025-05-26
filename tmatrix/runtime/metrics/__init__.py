@@ -1,6 +1,8 @@
 from .kv_events import EventStatsBase, KVEventStats
 from .requests import RequestStats
 from .registry import StatType, MetricsRegistry
+from .client import MetricsClientConfig, AsyncMetricsClient, MetricsPoller
+from .load_balancer import RealtimeVLLMLoadBalancer
 
 __all__ = [
     'EventStatsBase',
@@ -9,4 +11,9 @@ __all__ = [
 
     'StatType',
     'MetricsRegistry',
+
+    'MetricsClientConfig',
+    'AsyncMetricsClient',
+    'MetricsPoller',
+    'RealtimeVLLMLoadBalancer',
 ]

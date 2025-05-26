@@ -2,6 +2,7 @@ from typing import List, Dict, Optional
 
 from tmatrix.common.logging import init_logger
 from tmatrix.runtime.metrics import StatType, KVEventStats, MetricsRegistry
+from tmatrix.runtime.service_discovery import get_etcd_service_discovery
 from tmatrix.runtime.components.events_subscriber import (
     PrefixCacheFinder, ZMQInstanceConfig, ZMQEventSubscriber, SubscriberFactory,
 )
@@ -56,6 +57,10 @@ class PrefixCacheService:
     def start(self) -> None:
         """启动服务"""
         self.subscriber.start()
+        service_discovery = get_etcd_service_discovery()
+        endpoints = service_discovery.get_endpoints()
+        for endpoint in endpoints:
+            self.add_vllm_instance(endpoint.instance_name, endpoint.kv_event_config.endpoint)
         logger.info("全局前缀缓存感知服务已启动")
 
     def stop(self) -> None:
@@ -92,7 +97,7 @@ class PrefixCacheService:
 
         return self.subscriber.remove_instance(instance_id)
 
-    def find_longest_prefix_match(self, token_ids: List[int]) -> Optional[Dict]:
+    async def find_longest_prefix_match(self, token_ids: List[int]) -> Optional[Dict]:
         """
         查找最长的前缀匹配
         参数:
@@ -112,7 +117,7 @@ class PrefixCacheService:
             "timestamp": match.block_info.timestamp
         }
 
-    def find_all_prefix_matches(self, token_ids: List[int], limit: int = 5) -> List[Dict]:
+    async def find_all_prefix_matches(self, token_ids: List[int], limit: int = 5) -> List[Dict]:
         """
         查找所有实例的最长前缀匹配
         参数:

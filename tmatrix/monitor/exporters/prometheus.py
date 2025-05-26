@@ -251,6 +251,18 @@ class PrometheusExporter(MetricExporter):
                         le_value = mv.labels.get('le', '+Inf')
                         data_by_labels[labels_key]['buckets'][le_value] = mv.value
 
+                # ========== 新增：收集_sum指标的值 ==========
+                sum_metric_name = base_metric_name + '_sum'
+                if sum_metric_name in metrics_by_name:
+                    for mv in metrics_by_name[sum_metric_name]:
+                        if mv.metric_type == MetricType.HISTOGRAM:
+                            clean_labels = {k: v for k, v in mv.labels.items()}
+                            labels_key = tuple(sorted(clean_labels.items()))
+
+                            if labels_key in data_by_labels:
+                                data_by_labels[labels_key]['sum'] = mv.value
+                # ========== 新增结束 ==========
+
                 # 从+Inf bucket自动计算count，sum设为0
                 for labels_tuple, data in data_by_labels.items():
                     # 从+Inf bucket获取总count

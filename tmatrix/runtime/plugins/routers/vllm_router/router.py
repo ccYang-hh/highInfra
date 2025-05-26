@@ -1,10 +1,11 @@
 import time
+import httpx
 import random
 from typing import Any, Dict, List, Optional, Type, TypeVar
 from fastapi import APIRouter
 
 from tmatrix.common.logging import init_logger
-from tmatrix.runtime.service_discovery import Endpoint, EndpointType, EndpointStatus
+from tmatrix.runtime.service_discovery import Endpoint, KVRole
 from tmatrix.runtime.pipeline import StageHook, PipelineHook, PipelineStage
 from tmatrix.runtime.plugins import Plugin, IPluginConfig
 from tmatrix.runtime.core import RequestContext, RequestState
@@ -30,9 +31,21 @@ class RouterStage(PipelineStage):
         """初始化路由阶段"""
         super().__init__("router")
         self.config = config or RouterConfig()
-        self.routers = {}
+        self.routers: Dict[RouterStrategy, RouteStrategy] = {}
         self.current_strategy = self.config.default_strategy
+        # TODO 优化这个地方的耦合逻辑，包括配置参数等
+        self._async_client = httpx.AsyncClient(timeout=None, http2=True, limits=httpx.Limits(
+            max_keepalive_connections=1024,  # 长连接数需 ≥ 最大并发数
+            max_connections=1500,            # 总连接数 = 最大并发数+缓冲（建议1.5倍）
+            keepalive_expiry=60              # 空闲连接60秒释放（平衡复用率与资源占用）
+        ))
         self._init_routers()
+
+    async def _on_shutdown(self) -> None:
+        if self._async_client is not None:
+            await self._async_client.aclose()
+            self._async_client = None
+        self.routers.clear()
 
     def _init_routers(self):
         """初始化所有支持的路由策略"""
@@ -48,9 +61,7 @@ class RouterStage(PipelineStage):
 
         # 初始化KV缓存路由
         if RouterStrategy.KVCacheAware in self.config.support_strategies and self.config.kv_cache_enabled:
-            self.routers[RouterStrategy.KVCacheAware] = KVCacheAwareStrategy(
-                lmcache_controller_port=self.config.lmcache_controller_port
-            )
+            self.routers[RouterStrategy.KVCacheAware] = KVCacheAwareStrategy()
 
     def set_strategy(self, strategy: RouterStrategy):
         """设置当前路由策略"""
@@ -59,6 +70,20 @@ class RouterStage(PipelineStage):
             logger.info(f"Router strategy set to {strategy.name}")
         else:
             logger.warning(f"Router strategy {strategy.name} not supported, using current strategy")
+
+    @staticmethod
+    async def select_strategy(context: RequestContext) -> RouterStrategy:
+        request_type = context.request_type
+        if request_type == "first_time":
+            return RouterStrategy.KVCacheAware
+
+        elif request_type == "history":
+            return RouterStrategy.Session
+
+        elif request_type == "rag":
+            return RouterStrategy.KVCacheAware
+
+        return RouterStrategy.RoundRobin
 
     async def process(self, context: RequestContext) -> None:
         """处理请求上下文，选择合适的后端URL"""
@@ -83,14 +108,35 @@ class RouterStage(PipelineStage):
             request_stats = self._get_request_stats(context)
 
             # 选择当前的路由策略
-            router = self.routers.get(self.current_strategy)
+            strategy = await self.select_strategy(context)
+            router = self.routers.get(strategy)
             if not router:
-                context.error_message = f"Router strategy {self.current_strategy.name} not initialized"
+                context.error_message = f"Router strategy {strategy} not initialized"
                 context.state = RequestState.FAILED
                 return
 
-            # 根据路由策略选择后端URL
-            backend_url = await router.route_request(
+            if not router.initialized:
+                await router.initialize()
+
+            # 先选择Prefill实例
+            prefill_instance_url = await router.route_prefill_request(
+                endpoints=endpoints,
+                engine_stats=engine_stats,
+                request_stats=request_stats,
+                context=context
+            )
+
+            # 执行prefill推理过程
+            req_data = context.parsed_body.copy()
+            req_data['max_tokens'] = 1
+            response = await self._async_client.post(f"{prefill_instance_url}{context.endpoint}", json=req_data)
+            if not response.is_success:
+                # prefill阶段失败
+                context.fail(response.text)
+                return
+
+            # prefill执行成功，选择Decode实例
+            backend_url = await router.route_decode_request(
                 endpoints=endpoints,
                 engine_stats=engine_stats,
                 request_stats=request_stats,
@@ -118,28 +164,27 @@ class RouterStage(PipelineStage):
             context.state = RequestState.FAILED
 
     @staticmethod
-    def _get_endpoints_for_model(model_name: str, context: RequestContext) -> List[Endpoint]:
+    def _get_endpoints_for_model(model_name: str, context: RequestContext) -> Dict[str, List[Endpoint]]:
         """获取支持指定模型的端点列表"""
-        # endpoints = []
-        #
-        # # 尝试从app_state获取端点信息
-        # if context.app_state and "endpoints" in context.app_state:
-        #     endpoints_data = context.app_state["endpoints"]
-        #     for info in endpoints_data:
-        #         if info.get("model_name") == model_name:
-        #             endpoints_data.append(info)
-        #
-        # return endpoints
-        endpoints: List[Endpoint] = [
-            Endpoint(
-                endpoint_id="001",
-                address="70.182.43.96:30000",
-                model_name="qwen",
-                added_timestamp=time.time(),
-                status=EndpointStatus.HEALTHY,
-                endpoint_type=[EndpointType.COMPLETION]
-            )
-        ]
+        endpoints: Dict[str, List[Endpoint]] = {
+            "both_instances": [],
+            "prefill_instances": [],
+            "decode_instances": [],
+        }
+
+        # 尝试从app_state获取端点信息
+        if context.app_state and hasattr(context.app_state, "service_discovery"):
+            service_discovery = context.app_state.service_discovery
+            endpoint_candidates: List[Endpoint] = service_discovery.get_endpoints()
+            for info in endpoint_candidates:
+                if info.model_name == model_name:
+                    if info.kv_role == KVRole.PRODUCER:
+                        endpoints["prefill_instances"].append(info)
+                    elif info.kv_role == KVRole.CONSUMER:
+                        endpoints["decode_instances"].append(info)
+                    else:
+                        endpoints["both_instances"].append(info)
+
         return endpoints
 
     @staticmethod
@@ -148,7 +193,7 @@ class RouterStage(PipelineStage):
         # 从上下文或扩展中获取引擎统计信息
         engine_stats = {}
 
-        if context.app_state and "engine_stats" in context.app_state:
+        if context.app_state and hasattr(context.app_state, "engine_stats"):
             return context.app_state["engine_stats"]
 
         if "engine_stats" in context.extensions:
@@ -162,7 +207,7 @@ class RouterStage(PipelineStage):
         # 从上下文或扩展中获取请求统计信息
         request_stats = {}
 
-        if context.app_state and "request_stats" in context.app_state:
+        if context.app_state and hasattr(context.app_state, "request_stats"):
             return context.app_state["request_stats"]
 
         if "request_stats" in context.extensions:

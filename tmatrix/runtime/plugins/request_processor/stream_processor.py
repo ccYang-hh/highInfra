@@ -122,7 +122,7 @@ class StreamProcessorStage(PipelineStage):
 
 class StreamProcessorPlugin(Plugin):
     """处理流式请求并生成响应的插件"""
-    plugin_name: str = "request_stream_processor"
+    plugin_name: str = "request_processor"
     plugin_version: str = "0.0.1"
 
     def __init__(self):

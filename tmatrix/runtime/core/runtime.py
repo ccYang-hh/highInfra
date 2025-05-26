@@ -2,7 +2,6 @@ import os
 import time
 import json
 import asyncio
-from http import HTTPMethod
 from contextlib import asynccontextmanager
 from typing import Any, Dict, Optional, Union, cast
 
@@ -140,7 +139,9 @@ class RuntimeCore:
 
         logger.info("关闭系统...")
 
-        self.monitor.stop()
+        # 关闭Monitor进程
+        if self.config.enable_monitor:
+            self.monitor.stop()
 
         # 关闭插件
         if self.plugin_manager:
@@ -200,12 +201,12 @@ class RuntimeCore:
         # 默认Pipeline
         default_pipeline = PipelineConfig(
             pipeline_name="default",
-            plugins=["vllm_router", "request_stream_processor"],
+            plugins=["request_analyzer", "vllm_router", "request_stream_processor"],
             routes=[
-                PipelineRoute(path="/v1/models", method=HTTPMethod.GET),
-                PipelineRoute(path="/v1/embeddings", method=HTTPMethod.POST),
-                PipelineRoute(path="/v1/completions", method=HTTPMethod.POST),
-                PipelineRoute(path="/v1/chat/completions", method=HTTPMethod.POST),
+                PipelineRoute(path="/v1/models", method="GET"),
+                PipelineRoute(path="/v1/embeddings", method="POST"),
+                PipelineRoute(path="/v1/completions", method="POST"),
+                PipelineRoute(path="/v1/chat/completions", method="POST"),
             ]
         )
 

@@ -156,12 +156,12 @@ def run_continuous_publisher():
 
     # 创建发布器和模拟器
     publisher = EventPublisher(
-        instance_id="vllm-worker-1",
-        pub_endpoint="tcp://*:5557"
+        instance_id="vllm-worker-2",
+        pub_endpoint="tcp://*:5559"
     )
 
     simulator = KVCacheSimulator(
-        instance_id="vllm-worker-1",
+        instance_id="vllm-worker-2",
         token_offset=10000,
         block_size=16
     )
