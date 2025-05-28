@@ -2,7 +2,7 @@ from typing import List, Dict, Optional
 
 from tmatrix.common.logging import init_logger
 from tmatrix.runtime.metrics import StatType, KVEventStats, MetricsRegistry
-from tmatrix.runtime.service_discovery import get_etcd_service_discovery
+from tmatrix.runtime.service_discovery import get_etcd_service_discovery, KVRole
 from tmatrix.runtime.components.events_subscriber import (
     PrefixCacheFinder, ZMQInstanceConfig, ZMQEventSubscriber, SubscriberFactory,
 )
@@ -60,7 +60,8 @@ class PrefixCacheService:
         service_discovery = get_etcd_service_discovery()
         endpoints = service_discovery.get_endpoints()
         for endpoint in endpoints:
-            self.add_vllm_instance(endpoint.instance_name, endpoint.kv_event_config.endpoint)
+            if endpoint.kv_role in [KVRole.PRODUCER, KVRole.BOTH]:
+                self.add_vllm_instance(endpoint.instance_name, endpoint.kv_event_config.endpoint)
         logger.info("全局前缀缓存感知服务已启动")
 
     def stop(self) -> None:

@@ -1,27 +1,27 @@
 import httpx
 import asyncio
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional
 
 from tmatrix.common.logging import init_logger
-from tmatrix.runtime.metrics import MetricsClientConfig, AsyncMetricsClient, RealtimeVLLMLoadBalancer
+from tmatrix.runtime.metrics import LoadBalancer, RealtimeVLLMLoadBalancer
 from tmatrix.runtime.service_discovery import Endpoint
 from tmatrix.runtime.services import PrefixCacheService, get_prefix_cache_service
 from tmatrix.runtime.core import RequestContext
-from .base import RequestStats, EngineStats, RouteStrategy
+from .base import BaseRouter
 
 logger = init_logger("plugins/router")
 
 
-class KVCacheAwareStrategy(RouteStrategy):
+class KVCacheAwareStrategy(BaseRouter):
     """基于KV缓存的路由策略"""
 
-    def __init__(self):
+    def __init__(self, load_balancer: Optional[LoadBalancer] = None):
         super().__init__()
         self.req_id = 0
         self._lock = asyncio.Lock()
         self.kv_cache_available = False
+        self._load_balancer: Optional[RealtimeVLLMLoadBalancer] = load_balancer
         self._async_client: Optional[httpx.AsyncClient] = None
-        self.load_balancer: Optional[RealtimeVLLMLoadBalancer] = None
         self.prefix_cache_service: Optional[PrefixCacheService] = None
 
     async def _initialize(self):
@@ -39,26 +39,33 @@ class KVCacheAwareStrategy(RouteStrategy):
         else:
             logger.warning("KV Cache感知组件异常，使用轮询策略调度请求")
 
-        # 初始化负载均衡器
-        # 配置监控客户端
-        config = MetricsClientConfig(
-            base_url="http://172.17.111.150:8088",
-            endpoint="/api/v1/monitor/stats",
-            timeout=5.0
-        )
+    def _get_round_robin_endpoint(self, endpoints: List[Endpoint]) -> Endpoint:
+        """基于轮询策略选择端点"""
+        len_engines = len(endpoints)
+        chosen = sorted(endpoints, key=lambda e: e.url)[self.req_id % len_engines]
+        self.req_id += 1
+        return chosen
 
-        client = AsyncMetricsClient()
-        await client.initialize(config)
+    @staticmethod
+    def _extract_prompt_from_context(context: RequestContext) -> tuple[str, bool]:
+        """从请求上下文中提取提示文本和是否为聊天模式"""
+        prompt = ""
+        is_chat = True
 
-        # 创建负载均衡器
-        self.load_balancer = RealtimeVLLMLoadBalancer(client, poll_interval=3.0)
+        if context.endpoint == "/v1/chat/completions":
+            messages = context.parsed_body.get("messages", [])
+            assert len(messages) == 1, "KVCacheAware感知路由暂不支持处理历史请求"
+            message_dict = messages[0]
+            prompt = message_dict["content"]
+        elif context.endpoint == "/v1/completions":
+            prompt = context.parsed_body.get("prompt", "")
+            is_chat = False
 
-        # 启动负载均衡器
-        await self.load_balancer.start()
+        return prompt, is_chat
 
     async def _tokenize(self, endpoint: Endpoint, prompt: str) -> List[int]:
         """将提示文本转换为token ID"""
-        url = endpoint.address + "/tokenize"
+        url = f"{endpoint.transport_type.value}://{endpoint.address}/tokenize"
         headers = {"Content-Type": "application/json"}
         data = {"model": endpoint.model_name, "prompt": prompt}
 
@@ -67,95 +74,97 @@ class KVCacheAwareStrategy(RouteStrategy):
 
         return response_json.get("tokens", [])
 
+    @staticmethod
+    def _prepare_token_ids(token_ids: List[int], is_chat: bool) -> List[int]:
+        """准备token ID，对于聊天模式添加角色标识符"""
+        if is_chat:
+            # Chat场景，Prompt会追加三个标识符Token，TokenID为：151644, 872, 198
+            # TODO 取消硬编码
+            role_tokens = [151644, 872, 198]
+            return role_tokens + token_ids
+        return token_ids
+
+    @staticmethod
+    def _find_endpoint_by_instance_id(endpoints: List[Endpoint], instance_id: str) -> Optional[Endpoint]:
+        """根据实例ID查找对应的端点"""
+        for endpoint in endpoints:
+            if endpoint.instance_name == instance_id:
+                return endpoint
+        return None
+
+    async def _route_with_kv_cache_awareness(
+            self,
+            endpoints: List[Endpoint],
+            context: RequestContext
+    ) -> Endpoint:
+        """基于KV缓存感知的核心路由逻辑"""
+        instance_names = [item.instance_name for item in endpoints]
+
+        # 如果KV缓存不可用，使用轮询策略
+        if not self.kv_cache_available:
+            return self._get_round_robin_endpoint(endpoints)
+
+        # 提取prompt
+        prompt, is_chat = self._extract_prompt_from_context(context)
+        if not prompt:
+            return self._get_round_robin_endpoint(endpoints)
+
+        # TODO 高优先！！！
+        #   1.将tokenize的逻辑统一入队提前调度，异步写入Context
+        #   2.选择Prefill实例进行Tokenize时，基于负载均衡策略
+        token_ids = await self._tokenize(endpoints[0], prompt)
+        token_ids = self._prepare_token_ids(token_ids, is_chat)
+
+        async with self._lock:
+            matched_result = await self.prefix_cache_service.find_longest_prefix_match(token_ids)
+            logger.info(f"最长前缀匹配结果：{matched_result}")
+            # 匹配到了结果
+            # if matched_result is not None:
+
+
+            # 当前使用负载均衡的场景：
+            #   1.前缀匹配失败
+            #   2.前缀匹配/输入比值小于0.3（防止一直命中同一实例）
+            if (matched_result is None or
+                    len(matched_result.items()) == 0 or
+                    matched_result["match_length"] <= 3 or
+                    matched_result["match_length"]/len(token_ids) <= 0.1):
+
+                target = self._find_min_load_endpoint(endpoints, instance_names)
+                return target
+            else:
+                # 基于全局前缀缓存感知
+                target = self._find_endpoint_by_instance_id(endpoints, matched_result["instance_id"])
+                return target
+
+    async def route_request(
+            self,
+            endpoints: Dict[str, List[Endpoint]],
+            context: RequestContext
+    ) -> Endpoint:
+        """非PD分离场景使用该API进行调度"""
+        both_endpoints = self._validate_endpoints(endpoints, "both_instances")
+        return await self._route_with_kv_cache_awareness(both_endpoints, context)
+
     async def route_prefill_request(
             self,
             endpoints: Dict[str, List[Endpoint]],
-            engine_stats: Dict[str, EngineStats],
-            request_stats: Dict[str, RequestStats],
             context: RequestContext
-    ) -> str:
-        """基于KV缓存路由请求"""
-        if not endpoints:
-            raise ValueError("No available endpoints for routing")
-
-        prefill_endpoints: List[Endpoint] = endpoints["prefill_instances"]
-        if len(prefill_endpoints) == 0:
-            raise ValueError("No available endpoints for routing")
+    ) -> Endpoint:
+        """基于KV缓存路由Prefill请求"""
+        prefill_endpoints = self._validate_endpoints(endpoints, "prefill_instances")
 
         # 只有一个Prefill实例时，不需要额外调度
         if len(prefill_endpoints) == 1:
-            return prefill_endpoints[0].address
+            return prefill_endpoints[0]
 
-        if not self.kv_cache_available:
-            # 如果KV缓存不可用，则使用轮询
-            len_engines = len(prefill_endpoints)
-            chosen = sorted(prefill_endpoints, key=lambda e: e.url)[self.req_id % len_engines]
-            self.req_id += 1
-            return chosen.address
-
-        # 获取请求中的提示文本
-        prompt = context.parsed_body.get("prompt", "")
-        if not prompt:
-            # 如果没有提示文本，则使用轮询
-            len_engines = len(prefill_endpoints)
-            chosen = sorted(prefill_endpoints, key=lambda e: e.url)[self.req_id % len_engines]
-            self.req_id += 1
-            return chosen.address
-
-        # TODO 高优先级！！！
-        #   1.将tokenize的逻辑统一入队调度，异步写入Context
-        #   2.选择Prefill实例时，基于负载均衡策略
-        # 将提示文本转换为token ID
-        token_ids = await self._tokenize(prefill_endpoints[0], prompt)
-
-        with self._lock:
-            target: str
-            matched_result = await self.prefix_cache_service.find_longest_prefix_match(token_ids)
-            for endpoint in prefill_endpoints:
-                if matched_result["instance_id"] == endpoint.instance_name:
-                    target = endpoint.address
-                    break
-
-        return target
+        return await self._route_with_kv_cache_awareness(prefill_endpoints, context)
 
     async def route_decode_request(
             self,
             endpoints: Dict[str, List[Endpoint]],
-            engine_stats: Dict[str, EngineStats],
-            request_stats: Dict[str, RequestStats],
             context: RequestContext
-    ) -> str:
-        if not endpoints:
-            raise ValueError("No available endpoints for routing")
-
-        decode_endpoints: List[Endpoint] = endpoints["decode_instances"]
-        if len(decode_endpoints) == 0:
-            raise ValueError("No available endpoints for routing")
-
-        # 只有一个Decode实例时，不需要额外调度
-        if len(decode_endpoints) == 1 or self.load_balancer is None:
-            return decode_endpoints[0].address
-
-        # Decode实例基于负载均衡调度
-        scores_data = self.load_balancer.get_load_status()
-        logger.info(f"运行状态: {scores_data['is_running']}, "
-                    f"实例总数: {scores_data['total_instances']}, "
-                    f"健康实例: {scores_data['healthy_instances']}")
-
-        min_load_score = float('inf')
-        min_instance_id = None
-        for instance in scores_data['instances']:
-            logger.info(f"{instance['instance_id']}: "
-                        f"负载={instance['load_score']}, "
-                        f"运行={instance['running_requests']}, "
-                        f"等待={instance['waiting_requests']}, "
-                        f"缓存={instance['gpu_cache_usage']}%, "
-                        f"状态={instance['status']}")
-            load_score = instance['load_score']
-            if load_score < min_load_score:
-                min_load_score = load_score
-                min_instance_id = instance['instance_id']
-
-        for endpoint in decode_endpoints:
-            if endpoint.instance_name == min_instance_id:
-                return endpoint.address
+    ) -> Endpoint:
+        """路由Decode请求（仅基于负载均衡）"""
+        decode_endpoints = self._validate_endpoints(endpoints, "decode_instances")
+        return await self._route_with_load_balancing_only(decode_endpoints)

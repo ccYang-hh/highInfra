@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional, Union
 from fastapi import Request
 from fastapi.routing import APIRoute
 
+from tmatrix.vars import InferenceScene, RequestType
 from tmatrix.common.logging import init_logger
 logger = init_logger("runtime/core")
 
@@ -49,8 +50,11 @@ class RequestContext:
     raw_body: bytes = field(default_factory=lambda: bytes())
     parsed_body: Dict[str, Any] = field(default_factory=dict)
 
+    # 场景
+    scene: InferenceScene = field(default_factory=str)
+
     # 请求标识：first_time、history、rag
-    request_type: str = field(default_factory=str)
+    request_type: RequestType = field(default_factory=str)
     request_identifiers: Optional[Dict[str, str]] = field(default_factory=dict)
 
     # 模型信息

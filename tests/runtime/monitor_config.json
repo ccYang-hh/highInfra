@@ -6,12 +6,8 @@
       "scrape_interval": 5.0,
       "endpoints": [
         {
-          "address": "http://172.17.111.150:8002",
-          "instance_name": "vllm-worker-1"
-        },
-        {
-          "address": "http://172.17.111.150:8003",
-          "instance_name": "vllm-worker-2"
+          "address": "http://172.17.111.150:8200",
+          "instance_name": "vllm-worker"
         }
       ]
     },

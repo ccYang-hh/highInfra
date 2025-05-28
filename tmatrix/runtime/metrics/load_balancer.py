@@ -1,4 +1,5 @@
 import asyncio
+from abc import ABC, abstractmethod
 from typing import Dict, List, Optional
 from dataclasses import dataclass
 from datetime import datetime
@@ -19,7 +20,18 @@ class InstanceLoad:
     timestamp: datetime = None
 
 
-class RealtimeVLLMLoadBalancer:
+@dataclass
+class LoadBalancer(ABC):
+    @abstractmethod
+    async def start(self):
+        pass
+
+    @abstractmethod
+    async def stop(self):
+        pass
+
+
+class RealtimeVLLMLoadBalancer(LoadBalancer):
     """简化版 vLLM 负载均衡器（基于 Poller）"""
 
     def __init__(self, metrics_client: AsyncMetricsClient, poll_interval: float = 5.0):
@@ -82,7 +94,7 @@ class RealtimeVLLMLoadBalancer:
         # 按实例分组指标
         for metric_name, metric_list in metrics.items():
             for metric in metric_list:
-                instance_id = metric.get('labels', {}).get('instance', 'unknown')
+                instance_id = metric.get('labels', {}).get('inference_instance', 'unknown')
 
                 if instance_id == 'unknown':
                     continue

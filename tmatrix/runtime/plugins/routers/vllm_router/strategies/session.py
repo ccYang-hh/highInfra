@@ -1,18 +1,30 @@
+import asyncio
 from uhashring import HashRing
-from typing import Dict, List
+from typing import Dict, List, Optional
 
+from tmatrix.common.logging import init_logger
 from tmatrix.runtime.service_discovery import Endpoint
+from tmatrix.runtime.metrics import LoadBalancer, RealtimeVLLMLoadBalancer
+from tmatrix.runtime.metrics import MetricsClientConfig, AsyncMetricsClient, RealtimeVLLMLoadBalancer
 from tmatrix.runtime.core import RequestContext
-from .base import RequestStats, EngineStats, RouteStrategy
+from .base import BaseRouter
+
+logger = init_logger("plugins/router")
 
 
-class SessionStrategy(RouteStrategy):
+class SessionStrategy(BaseRouter):
     """基于会话的路由策略"""
 
-    def __init__(self, session_key: str = "x-session-id"):
+    def __init__(self, load_balancer: Optional[LoadBalancer] = None):
         super().__init__()
-        self.session_key = session_key
         self.hash_ring = HashRing()
+        self._lock = asyncio.Lock()
+        self._load_balancer: Optional[RealtimeVLLMLoadBalancer] = load_balancer
+        self._binding_store: Optional[Dict[str, Optional[Endpoint]]] = {}
+
+    def update_binding_store(self, chat_id: str, endpoint: Endpoint) -> None:
+        logger.info(f"Session Store: 记录当前Chat ID {chat_id}")
+        self._binding_store[chat_id] = endpoint
 
     def _update_hash_ring(self, endpoints: List[Endpoint]):
         """更新哈希环"""
@@ -33,81 +45,42 @@ class SessionStrategy(RouteStrategy):
         for node in new_nodes - current_nodes:
             self.hash_ring.add_node(node)
 
-    @staticmethod
-    def _qps_routing(
-            endpoints: List[Endpoint],
-            request_stats: Dict[str, RequestStats]
-    ) -> str:
-        """基于QPS选择负载最低的后端"""
-        lowest_qps = float("inf")
-        ret = None
+    async def _route_with_session(self, endpoints: List[Endpoint], context: RequestContext) -> Endpoint:
+        # 只有一个实例时，不需要额外调度
+        if len(endpoints) == 1:
+            return endpoints[0]
 
-        for info in endpoints:
-            url = info.address
-            if url not in request_stats:
-                return url  # 该引擎尚无请求
+        # 获取会话ID
+        chat_id = context.request_identifiers.get("chat_id", "")
+        if not chat_id:
+            # 改为负载均衡的调度（正常走不到该分支）
+            return await self._route_with_load_balancing_only(endpoints)
 
-            request_stat = request_stats[url]
-            if request_stat.qps < lowest_qps:
-                lowest_qps = request_stat.qps
-                ret = url
+        # 获取会话ID的端点
+        return self._binding_store.get(chat_id, None)
 
-        if ret is None and endpoints:
-            return endpoints[0].address
-
-        return ret
+    async def route_request(
+            self,
+            endpoints: Dict[str, List[Endpoint]],
+            context: RequestContext
+    ) -> Endpoint:
+        """非PD分离场景使用该API进行调度"""
+        both_endpoints = self._validate_endpoints(endpoints, "both_instances")
+        return await self._route_with_session(both_endpoints, context)
 
     async def route_prefill_request(
             self,
             endpoints: Dict[str, List[Endpoint]],
-            engine_stats: Dict[str, EngineStats],
-            request_stats: Dict[str, RequestStats],
             context: RequestContext
-    ) -> str:
+    ) -> Endpoint:
         """基于会话ID路由请求"""
-        if not endpoints:
-            raise ValueError("No available endpoints for routing")
-
-        prefill_endpoints: List[Endpoint] = endpoints["prefill_instances"]
-        if len(prefill_endpoints) == 0:
-            raise ValueError("No available endpoints for routing")
-
-        # 只有一个Prefill实例时，不需要额外调度
-        if len(prefill_endpoints) == 1:
-            return prefill_endpoints[0].address
-
-        # 获取会话ID
-        session_id = context.headers.get(self.session_key)
-
-        # 更新哈希环
-        self._update_hash_ring(prefill_endpoints)
-
-        if not session_id:
-            # 如果没有会话ID，则基于QPS路由
-            url = self._qps_routing(prefill_endpoints, request_stats)
-        else:
-            # 使用哈希环获取会话ID的端点
-            url = self.hash_ring.get_node(session_id)
-
-        return url
+        prefill_endpoints = self._validate_endpoints(endpoints, "prefill_instances")
+        return await self._route_with_session(prefill_endpoints, context)
 
     async def route_decode_request(
             self,
             endpoints: Dict[str, List[Endpoint]],
-            engine_stats: Dict[str, EngineStats],
-            request_stats: Dict[str, RequestStats],
             context: RequestContext
-    ) -> str:
-        if not endpoints:
-            raise ValueError("No available endpoints for routing")
-
-        decode_endpoints: List[Endpoint] = endpoints["decode_instances"]
-        if len(decode_endpoints) == 0:
-            raise ValueError("No available endpoints for routing")
-
-        # 只有一个Decode实例时，不需要额外调度
-        if len(decode_endpoints) == 1:
-            return decode_endpoints[0].address
-
-        # Decode实例基于负载均衡调度
-        return decode_endpoints[0].address
+    ) -> Endpoint:
+        decode_endpoints = self._validate_endpoints(endpoints, "decode_instances")
+        return await self._route_with_session(decode_endpoints, context)

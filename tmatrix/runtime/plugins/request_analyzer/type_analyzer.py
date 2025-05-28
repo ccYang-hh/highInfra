@@ -5,6 +5,7 @@ from typing import Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass
 
 from tmatrix.common.logging import init_logger
+from tmatrix.vars import RequestType
 from tmatrix.runtime.utils import HTTPXClientWrapper
 from tmatrix.runtime.pipeline import PipelineStage
 from tmatrix.runtime.plugins import Plugin
@@ -55,7 +56,7 @@ class OpenAIRequestAnalyzer:
 
         return result
 
-    def _determine_request_type(self, request_data: Dict) -> str:
+    def _determine_request_type(self, request_data: Dict) -> RequestType:
         """
         确定请求类型：首次请求、历史请求或RAG请求
         """
@@ -63,19 +64,23 @@ class OpenAIRequestAnalyzer:
 
         # 检查是否有RAG内容
         if self._has_rag_content(messages):
-            return "rag"
+            return RequestType.RAG
 
         # 检查是否是首次请求
         user_messages = [msg for msg in messages if msg.get("role") == "user"]
         assistant_messages = [msg for msg in messages if msg.get("role") == "assistant"]
 
+        # Chat场景，第一轮对话
         if len(assistant_messages) == 0 and len(user_messages) == 1:
-            return "first_time"
-        # Completion等非Chat场景
-        elif len(assistant_messages) == 0 and len(user_messages) == 0:
-            return "first_time"
+            return RequestType.FIRST_TIME
+
+        # 非Chat场景，如: Completion
+        elif len(user_messages) == 0 and len(assistant_messages) == 0:
+            return RequestType.FIRST_TIME
+
+        # 其余场景，视为已进入多轮对话阶段
         else:
-            return "history"
+            return RequestType.HISTORY
 
     def _has_rag_content(self, messages: List[Dict]) -> bool:
         """
@@ -223,13 +228,17 @@ class OpenAIRequestAnalyzer:
         }
 
 
-class RequestTypeAnalyzer(PipelineStage):
+class TypeAnalyzeStage(PipelineStage):
+    """请求类型识别"""
     def __init__(self, stage_name: str):
-        """初始化流处理阶段"""
         super().__init__(stage_name)
-        self.openai_request_type_analyzer = OpenAIRequestAnalyzer()
+        self.openai_analyzer = OpenAIRequestAnalyzer()
 
     async def process(self, context: RequestContext) -> None:
-        analysis_data = await self.openai_request_type_analyzer.analyze_request(context.parsed_body)
-        context.request_type = analysis_data['request_type']
-        context.request_identifiers = analysis_data['identifiers']
+        context.set_state(RequestState.PREPROCESSING)
+        analysis_result = await self.openai_analyzer.analyze_request(context.parsed_body)
+        logger.info(f"OpenAI request analysis result: {analysis_result}")
+
+        # 刷新Context
+        context.request_type = analysis_result['request_type']
+        context.request_identifiers = analysis_result['identifiers']

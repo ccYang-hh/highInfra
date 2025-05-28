@@ -201,7 +201,7 @@ class RuntimeCore:
         # 默认Pipeline
         default_pipeline = PipelineConfig(
             pipeline_name="default",
-            plugins=["request_analyzer", "vllm_router", "request_stream_processor"],
+            plugins=["request_analyzer", "vllm_router", "request_processor"],
             routes=[
                 PipelineRoute(path="/v1/models", method="GET"),
                 PipelineRoute(path="/v1/embeddings", method="POST"),
